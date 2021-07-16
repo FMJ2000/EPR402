@@ -9,7 +9,7 @@
 Game::Game() {
 	sf::ContextSettings settings;
 	settings.antialiasingLevel = 4;
-	this->window.create(sf::VideoMode(600, 400), GAME_NAME, sf::Style::Default, settings);
+	this->window.create(sf::VideoMode(1200, 800), GAME_NAME, sf::Style::Default, settings);
 	this->window.setFramerateLimit(60);
 	this->bot = new Bot(this);
 	createOuterWalls();
@@ -47,7 +47,7 @@ void Game::handleInput() {
 }
 
 void Game::update(const float dt) {
-
+	this->bot->update(dt);
 }
 
 void Game::draw(const float dt) {

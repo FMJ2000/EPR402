@@ -8,6 +8,7 @@ class Obstacle {
 		sf::CircleShape shape;
 
 		Obstacle() { }
+		Obstacle(sf::Vector2f pos);
 		~Obstacle() { }
 };
 
