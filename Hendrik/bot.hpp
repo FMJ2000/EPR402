@@ -8,10 +8,11 @@
 #include "obstacle.hpp"
 
 #define SENSOR_INT 0.3f
-#define SENSOR_ANGLE 30
+#define SENSOR_ANGLE 15
 #define SENSOR_OFFSET 10.f
-#define SENSOR_SAMPLES 5
+#define SENSOR_SAMPLES 3
 #define SENSOR_MAX 500.f
+#define OBSTACLE_MAX_DIST 3.f
 #define BOT_FILL_COLOR sf::Color(0xB1, 0xB1, 0xB1)
 #define BOT_OUTLINE_COLOR sf::Color(0x47, 0x47, 0x47)
 #define BOT_SENSOR_COLOR sf::Color(0x32, 0xCD, 0x32)
@@ -28,7 +29,7 @@ class Bot {
 		sf::CircleShape shadeBlock;
 		std::vector<sf::CircleShape> shade;
 		std::vector<Obstacle> obstacles;
-		float currentTime;
+		sf::Vector2f currentPos;
 
 	public:
 		sf::CircleShape shape;
@@ -44,6 +45,7 @@ class Bot {
 		void sense();
 		bool intersect(sf::CircleShape bot, sf::RectangleShape wall);
 		std::vector<sf::RectangleShape> getViewObstacles();
+		void updatePerceivedObstacles(std::vector<sf::Vector2f> locations);
 		std::vector<sf::Vector2f> ellipticLocalization(std::vector<float> r1, std::vector<float> r2);
 };
 

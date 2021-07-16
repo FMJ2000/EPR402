@@ -81,7 +81,7 @@ void Game::createOuterWalls() {
 
 	/* obstacles */
 	wall.setSize(sf::Vector2f(60.f, 60.f));
-	for (size_t i = 0; i < 3; i++) {
+	for (size_t i = 0; i < 10; i++) {
 		sf::Vector2f pos = sf::Vector2f(rand() % int(dimensions.x - wall.getSize().x), rand() % int(dimensions.y - wall.getSize().y));	
 		wall.setPosition(pos);
 		this->walls.push_back(wall);
