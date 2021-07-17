@@ -5,6 +5,7 @@
 
 #define MAX_LIVES 3
 #define REQ_CONF 2
+#define MAX_EVAL_DIST 200.f
 
 class Obstacle {
 	public:
@@ -13,7 +14,6 @@ class Obstacle {
 		unsigned int lives;
 		bool found;
 		float distance;
-		int index;
 
 		Obstacle() { }
 		Obstacle(sf::Vector2f pos);

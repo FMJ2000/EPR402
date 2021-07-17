@@ -8,6 +8,7 @@ Bot::Bot(Game * game) {
 	this->game = game;
 	this->rotateSpeed = 2.f;
 	this->moveSpeed = 3.f;
+	this->botState = MANUAL;
 
 	/* bot shape */
 	//this->shape = sf::CircleShape(30.f, 7);
@@ -41,11 +42,13 @@ Bot::Bot(Game * game) {
 }
 
 void Bot::update(const float dt) {
-	/*this->currentTime += dt;
-	if (this->currentTime >= SENSOR_INT) {
-		this->sense();
-		this->currentTime = 0.f;
-	}*/
+	switch (this->botState) {
+		case SURVEY:
+			this->survey(dt);
+			break;
+		
+		default: break;
+	}
 }
 
 void Bot::draw(const float dt) {
@@ -99,65 +102,42 @@ void Bot::move(const int dir) {
 }
 
 void Bot::sense() {
-	/* acquire minimum points */
-	std::vector<sf::RectangleShape> obstacles = this->getViewObstacles();
-	std::vector<float> minS1(SENSOR_SAMPLES, 10000);
-	std::vector<float> minS2(SENSOR_SAMPLES, 10000);
-	sf::Vector2f pos1 = this->sensors[0].getTransform().transformPoint(sf::Vector2f(0, 0));
-	sf::Vector2f pos2 = this->sensors[1].getTransform().transformPoint(sf::Vector2f(0, 0));
-
-	for (auto obstacle : obstacles) {
-		std::vector<float> distance1v;
-		std::vector<float> distance2v;
-
-		distance1v.push_back(2 * sqrt(pow(obstacle.getPosition().x - pos1.x, 2) + pow(obstacle.getPosition().y - pos1.y, 2)));
-		distance1v.push_back(2 * sqrt(pow(obstacle.getPosition().x + obstacle.getSize().x - pos1.x, 2) + pow(obstacle.getPosition().y - pos1.y, 2)));
-		distance1v.push_back(2 * sqrt(pow(obstacle.getPosition().x - pos1.x, 2) + pow(obstacle.getPosition().y + obstacle.getSize().y - pos1.y, 2)));
-		distance1v.push_back(2 * sqrt(pow(obstacle.getPosition().x + obstacle.getSize().x - pos2.x, 2) + pow(obstacle.getPosition().y + obstacle.getSize().y - pos1.y, 2)));
-		distance2v.push_back(distance1v[0] / 2.f + sqrt(pow(obstacle.getPosition().x - pos2.x, 2) + pow(obstacle.getPosition().y - pos2.y, 2)));
-		distance2v.push_back(distance1v[1] / 2.f + sqrt(pow(obstacle.getPosition().x + obstacle.getSize().x - pos2.x, 2) + pow(obstacle.getPosition().y - pos2.y, 2)));
-		distance2v.push_back(distance1v[2] / 2.f + sqrt(pow(obstacle.getPosition().x - pos2.x, 2) + pow(obstacle.getPosition().y + obstacle.getSize().y - pos2.y, 2)));
-		distance2v.push_back(distance1v[3] / 2.f + sqrt(pow(obstacle.getPosition().x + obstacle.getSize().x - pos1.x, 2) + pow(obstacle.getPosition().y + obstacle.getSize().y - pos2.y, 2)));
-		
-		std::sort(distance1v.begin(), distance1v.end());
-		std::sort(distance2v.begin(), distance2v.end());
-		int index1 = 0, index2 = 0;
-
-		for (size_t i = 0; i < SENSOR_SAMPLES; i++) {
-			if (minS1[i] > distance1v[index1]) {
-				minS1[i] = distance1v[index1];
-				if (index1 < distance1v.size() - 1) index1++;
-				else break;
+	std::pair<std::vector<float>, std::vector<float>> distances = this->game->sense();		
+	std::vector<sf::Vector2f> locations = this->ellipticLocalization(distances.first, distances.second);
+	std::vector<Obstacle *> viewObstacles = this->updatePerceivedObstacles(locations);
+	
+	for (auto location : locations) {
+		bool found = false;
+		for (size_t i = 0; i < viewObstacles.size(); i++) {
+			float distance = sqrt(pow(viewObstacles[i]->shape.getPosition().x - location.x, 2) + pow(viewObstacles[i]->shape.getPosition().y - location.y, 2));
+			if (distance <= OBSTACLE_MAX_DIST) {
+				viewObstacles[i]->confirmations++;
+				viewObstacles[i]->found = true;
+				viewObstacles[i]->shape.setPosition(sf::Vector2f((viewObstacles[i]->shape.getPosition().x + location.x) / 2, (viewObstacles[i]->shape.getPosition().y + location.y) / 2));
+				found = true;
+				break;
 			}
 		}
-		for (size_t i = 0; i < SENSOR_SAMPLES; i++) {
-			if (minS2[i] > distance2v[index2]) {
-				minS2[i] = distance2v[index2];
-				if (index2 < distance2v.size() - 1) index2++;
-				else break;
+		if (!found) this->obstacles.push_back(Obstacle(location));
+	}
+
+	/*
+	for (size_t i = 0; i < viewObstacles.size(); i++) {
+		if (!viewObstacles[i]->found) viewObstacles[i]->lives--;
+		if (viewObstacles[i]->lives <= 0) {
+			for (size_t j = 0; j < this->obstacles.size(); j++) {
+				if (viewObstacles[i] == &this->obstacles[j]) {
+					this->obstacles.erase(this->obstacles.begin() + j);
+					break;
+				}
 			}
 		}
 	}
-	std::sort(minS1.begin(), minS1.end());
-	std::sort(minS2.begin(), minS2.end());
-	for (size_t i = 0; i < minS1.size(); i++) {
-		if (minS1[i] > SENSOR_MAX) {
-			minS1.erase(minS1.begin() + i, minS1.end());
-			break;
-		}
-	}
-	for (size_t i = 0; i < minS2.size(); i++) {
-		if (minS2[i] > SENSOR_MAX) {
-			minS2.erase(minS2.begin() + i, minS2.end());
-			break;
-		}
-	}
+	*/
 
-	/* calculate possible positions */
-	//this->obstacles.clear();
-	if (minS1.size() > 0 && minS2.size() > 0) {
-		std::vector<sf::Vector2f> locations = this->ellipticLocalization(minS1, minS2);
-		this->updatePerceivedObstacles(locations);
+	for (size_t i = 0; i < this->obstacles.size(); i++) {
+		if (this->obstacles[i].confirmations < REQ_CONF) this->obstacles[i].lives--;
+		if (this->obstacles[i].lives <= 0) this->obstacles.erase(this->obstacles.begin() + i);
 	}
 }
 
@@ -182,30 +162,27 @@ bool Bot::intersect(sf::CircleShape bot, sf::RectangleShape wall) {
 	return false;
 }
 
-std::vector<sf::RectangleShape> Bot::getViewObstacles() {
-	float angle1 = (this->shape.getRotation() - SENSOR_ANGLE) * M_PI / 180.f;
-	float angle2 = (this->shape.getRotation() + SENSOR_ANGLE) * M_PI / 180.f;
-	if (angle1 > M_PI) angle1 -= 2 * M_PI;
-	if (angle2 > M_PI) angle2 -= 2 * M_PI;
+std::vector<sf::CircleShape> Bot::getPeripheralObstacles() {
 	sf::Vector2f pos = this->shape.getPosition();
-	std::vector<sf::RectangleShape> viewObstacles;
+	std::vector<sf::CircleShape> output;
 
-	for (size_t i = 0; i < this->game->walls.size(); i++) {
-		sf::RectangleShape * wall = &this->game->walls[i];
-		wall->setFillColor(WALL_COLOR);
-		float angle = atan2(wall->getPosition().y - pos.y, wall->getPosition().x - pos.x) + M_PI / 2.f;
-		if (angle > M_PI) angle -= 2 * M_PI;
-		if ((angle1 < angle2 && angle >= angle1 && angle <= angle2) ||
-			(angle1 > angle2 && (angle >= angle1 || angle <= angle2))) {
-			wall->setFillColor(WALL_SENSE_COLOR);
-			viewObstacles.push_back(*wall);
-		}
+	for (size_t i = 0; i < this->obstacles.size(); i++) {
+		float distance = sqrt(pow(this->obstacles[i].shape.getPosition().x - pos.x, 2) + pow(this->obstacles[i].shape.getPosition().y - pos.y, 2));
+		if (distance <= OBSTACLE_PERIPH) output.push_back(this->obstacles[i].shape);
 	}
 
-	return viewObstacles;
+	return output;
 }
 
-void Bot::updatePerceivedObstacles(std::vector<sf::Vector2f> locations) {
+float Bot::getAngle(sf::Vector2f location) {
+	float shapeAngle = this->shape.getRotation() * M_PI / 180.f;
+	float angle = atan2(location.y - this->shape.getPosition().y, location.x - this->shape.getPosition().x) + M_PI / 2.f;
+	if (angle > M_PI) angle -= 2 * M_PI;
+	std::cout << "shapeAngle: " << shapeAngle << ", angle: " << angle << std::endl;
+	return angle;
+}
+
+std::vector<Obstacle *> Bot::updatePerceivedObstacles(std::vector<sf::Vector2f> locations) {
 	float angle1 = (this->shape.getRotation() - SENSOR_ANGLE) * M_PI / 180.f;
 	float angle2 = (this->shape.getRotation() + SENSOR_ANGLE) * M_PI / 180.f;
 	if (angle1 > M_PI) angle1 -= 2 * M_PI;
@@ -215,35 +192,21 @@ void Bot::updatePerceivedObstacles(std::vector<sf::Vector2f> locations) {
 
 	for (size_t i = 0; i < this->obstacles.size(); i++) {
 		Obstacle * obstacle = &this->obstacles[i];
+		obstacle->shape.setFillColor(sf::Color::Black);
 		float angle = atan2(obstacle->shape.getPosition().y - pos.y, obstacle->shape.getPosition().x - pos.x) + M_PI / 2.f;
 		if (angle > M_PI) angle -= 2 * M_PI;
 		if ((angle1 < angle2 && angle >= angle1 && angle <= angle2) ||
 			(angle1 > angle2 && (angle >= angle1 || angle <= angle2))) {
-			obstacle->found = false;
-			obstacle->index = i;
 			obstacle->distance = sqrt(pow(obstacle->shape.getPosition().x - this->shape.getPosition().x, 2) + pow(obstacle->shape.getPosition().y - this->shape.getPosition().y, 2));
-			viewObstacles.push_back(obstacle);
-		}
-	}
-
-	for (auto location : locations) {
-		bool found = false;
-		for (size_t i = 0; i < viewObstacles.size(); i++) {
-			float distance = sqrt(pow(viewObstacles[i]->shape.getPosition().x - location.x, 2) + pow(viewObstacles[i]->shape.getPosition().y - location.y, 2));
-			if (distance <= OBSTACLE_MAX_DIST) {
-				viewObstacles[i]->lives++;
-				viewObstacles[i]->found = true;
-				found = true;
-				break;
+			if (obstacle->distance <= MAX_EVAL_DIST) {
+				obstacle->found = false;
+				obstacle->shape.setFillColor(sf::Color::Yellow);
+				viewObstacles.push_back(obstacle);
 			}
 		}
-		if (!found) this->obstacles.push_back(Obstacle(location));
 	}
 
-	for (size_t i = 0; i < viewObstacles.size(); i++) {
-		if (!viewObstacles[i]->found) viewObstacles[i]->lives--;
-		if (viewObstacles[i]->lives <= 0) this->obstacles.erase(this->obstacles.begin() + viewObstacles[i]->index);
-	}
+	return viewObstacles;
 }
 
 std::vector<sf::Vector2f> Bot::ellipticLocalization(std::vector<float> r1, std::vector<float> r2) {
@@ -256,11 +219,19 @@ std::vector<sf::Vector2f> Bot::ellipticLocalization(std::vector<float> r1, std::
 			float newX = (r1[i] * r2[j] - pow(r2[j], 2)) / (4 * SENSOR_OFFSET);
 			float newY = (sqrt(pow(r2[j], 2) - pow(2 * SENSOR_OFFSET, 2)) * sqrt(pow(2 * SENSOR_OFFSET, 2) - pow(r1[i] - r2[j], 2))) / (4 * SENSOR_OFFSET);
 			if (!isnan(newX) && !isnan(newY)) {
-				std::cout << newX << ", " << newY << std::endl;
+				//std::cout << newX << ", " << newY << std::endl;
 				output.push_back(pos.transformPoint(sf::Vector2f(newX, -newY)) - this->sensors[0].getSize());
 			}
 		}
 	}
 	//if (output.size() > 0) std::cout << output[0].x << ", " << output[0].y << std::endl;
 	return output;
+}
+
+void Bot::surveyPos(const float dt) {
+
+}
+
+void Bot::encircleRoom(const float dt) {
+
 }

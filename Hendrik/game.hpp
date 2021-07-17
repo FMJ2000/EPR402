@@ -25,6 +25,8 @@ class Game {
 		void update(const float dt);
 		void draw(const float dt);
 		void createOuterWalls();
+		std::pair<std::vector<float>, std::vector<float>> sense();
+		std::vector<sf::RectangleShape> getViewObstacles();
 };
 
 #endif

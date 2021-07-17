@@ -13,6 +13,7 @@
 #define SENSOR_SAMPLES 3
 #define SENSOR_MAX 500.f
 #define OBSTACLE_MAX_DIST 3.f
+#define OBSTACLE_PERIPH 200.f
 #define BOT_FILL_COLOR sf::Color(0xB1, 0xB1, 0xB1)
 #define BOT_OUTLINE_COLOR sf::Color(0x47, 0x47, 0x47)
 #define BOT_SENSOR_COLOR sf::Color(0x32, 0xCD, 0x32)
@@ -21,9 +22,17 @@
 static std::default_random_engine gen;
 static std::normal_distribution<float> normal(0.f, 1.f);
 
+enum state {
+	MANUAL,
+	SURVEY,
+	PERIPHERAL,
+	SWEEP
+};
+
 class Bot {
 	private:
 		Game * game;
+		state botState;
 		float rotateSpeed;
 		float moveSpeed;
 		sf::CircleShape shadeBlock;
@@ -44,9 +53,11 @@ class Bot {
 		void move(const int dir);
 		void sense();
 		bool intersect(sf::CircleShape bot, sf::RectangleShape wall);
-		std::vector<sf::RectangleShape> getViewObstacles();
-		void updatePerceivedObstacles(std::vector<sf::Vector2f> locations);
+		std::vector<sf::CircleShape> getPeripheralObstacles();
+		float getAngle(sf::Vector2f location);
+		std::vector<Obstacle *> updatePerceivedObstacles(std::vector<sf::Vector2f> locations);
 		std::vector<sf::Vector2f> ellipticLocalization(std::vector<float> r1, std::vector<float> r2);
+		void encircleRoom();
 };
 
 #endif
