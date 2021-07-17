@@ -8,7 +8,7 @@ Bot::Bot(Game * game) {
 	this->game = game;
 	this->rotateSpeed = 2.f;
 	this->moveSpeed = 3.f;
-	this->botState = MANUAL;
+	this->surveyRotateSpeed = 120.f;
 
 	/* bot shape */
 	//this->shape = sf::CircleShape(30.f, 7);
@@ -39,6 +39,9 @@ Bot::Bot(Game * game) {
 	this->shadeBlock.setRadius(30.f);
 	this->shadeBlock.setFillColor(SHADE_COLOR);
 	this->shadeBlock.setOrigin(sf::Vector2f(this->shadeBlock.getRadius(), this->shadeBlock.getRadius()));
+
+	this->timestamp = 0.f;
+	this->botState = SURVEY;
 }
 
 void Bot::update(const float dt) {
@@ -228,8 +231,14 @@ std::vector<sf::Vector2f> Bot::ellipticLocalization(std::vector<float> r1, std::
 	return output;
 }
 
-void Bot::surveyPos(const float dt) {
-
+void Bot::survey(const float dt) {
+	this->rotate(this->surveyRotateSpeed * dt);
+	std::cout << this->surveyRotateSpeed * timestamp << std::endl;
+	this->timestamp += dt;
+	if (timestamp >= (180.f / this->surveyRotateSpeed)) {
+		this->botState = MANUAL;
+		timestamp = 0.f;
+	}
 }
 
 void Bot::encircleRoom(const float dt) {

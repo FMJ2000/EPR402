@@ -24,6 +24,7 @@ static std::normal_distribution<float> normal(0.f, 1.f);
 
 enum state {
 	MANUAL,
+	NONE,
 	SURVEY,
 	PERIPHERAL,
 	SWEEP
@@ -32,15 +33,17 @@ enum state {
 class Bot {
 	private:
 		Game * game;
-		state botState;
 		float rotateSpeed;
 		float moveSpeed;
 		sf::CircleShape shadeBlock;
 		std::vector<sf::CircleShape> shade;
 		std::vector<Obstacle> obstacles;
 		sf::Vector2f currentPos;
+		float surveyRotateSpeed;
+		float timestamp;
 
 	public:
+		state botState;
 		sf::CircleShape shape;
 		sf::CircleShape point;
 		std::vector<sf::RectangleShape> sensors;
@@ -51,13 +54,18 @@ class Bot {
 		void draw(const float dt);
 		void rotate(const int dir);
 		void move(const int dir);
+
+		/* sense */
 		void sense();
 		bool intersect(sf::CircleShape bot, sf::RectangleShape wall);
 		std::vector<sf::CircleShape> getPeripheralObstacles();
 		float getAngle(sf::Vector2f location);
 		std::vector<Obstacle *> updatePerceivedObstacles(std::vector<sf::Vector2f> locations);
 		std::vector<sf::Vector2f> ellipticLocalization(std::vector<float> r1, std::vector<float> r2);
-		void encircleRoom();
+
+		/* navigation */
+		void survey(const float dt);
+		void encircleRoom(const float dt);
 };
 
 #endif

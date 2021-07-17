@@ -40,10 +40,12 @@ void Game::handleInput() {
 		}
 	}
 
-	if (sf::Keyboard::isKeyPressed(sf::Keyboard::W)) this->bot->move(-1);
-	if (sf::Keyboard::isKeyPressed(sf::Keyboard::S)) this->bot->move(1);
-	if (sf::Keyboard::isKeyPressed(sf::Keyboard::A)) this->bot->rotate(-1);
-	if (sf::Keyboard::isKeyPressed(sf::Keyboard::D)) this->bot->rotate(1);
+	if (this->bot->botState == MANUAL) {
+		if (sf::Keyboard::isKeyPressed(sf::Keyboard::W)) this->bot->move(-1);
+		if (sf::Keyboard::isKeyPressed(sf::Keyboard::S)) this->bot->move(1);
+		if (sf::Keyboard::isKeyPressed(sf::Keyboard::A)) this->bot->rotate(-1);
+		if (sf::Keyboard::isKeyPressed(sf::Keyboard::D)) this->bot->rotate(1);
+	}
 }
 
 void Game::update(const float dt) {
