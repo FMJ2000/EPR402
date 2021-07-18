@@ -1,8 +1,8 @@
 CC = g++
 CFLAGS = -Wall -g
 SFMLFLAGS = -lsfml-graphics -lsfml-window -lsfml-system -lm
-OBJECTS = main.o game.o bot.o obstacle.o
-HEADERS = game.hpp bot.hpp obstacle.hpp
+OBJECTS = main.o game.o bot.o obstacle.o node.o
+HEADERS = game.hpp bot.hpp obstacle.hpp node.hpp
 
 main: $(OBJECTS)
 	$(CC) $(CFLAGS) -o main $(OBJECTS) $(SFMLFLAGS)

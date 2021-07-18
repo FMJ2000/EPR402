@@ -6,8 +6,10 @@
 #include <random>
 #include "game.hpp"
 #include "obstacle.hpp"
+#include "node.hpp"
 
-#define SENSOR_INT 0.3f
+#define BOT_RADIUS 30.f
+#define SENSE_INTERVAL 0.3f
 #define SENSOR_ANGLE 15
 #define SENSOR_OFFSET 10.f
 #define SENSOR_SAMPLES 3
@@ -17,7 +19,6 @@
 #define BOT_FILL_COLOR sf::Color(0xB1, 0xB1, 0xB1)
 #define BOT_OUTLINE_COLOR sf::Color(0x47, 0x47, 0x47)
 #define BOT_SENSOR_COLOR sf::Color(0x32, 0xCD, 0x32)
-#define SHADE_COLOR sf::Color(0xFF, 0xF4, 0xC2)
 
 static std::default_random_engine gen;
 static std::normal_distribution<float> normal(0.f, 1.f);
@@ -33,16 +34,16 @@ enum state {
 class Bot {
 	private:
 		Game * game;
-		float rotateSpeed;
-		float moveSpeed;
-		sf::CircleShape shadeBlock;
-		std::vector<sf::CircleShape> shade;
+		std::vector<Node> nodes;
 		std::vector<Obstacle> obstacles;
 		sf::Vector2f currentPos;
 		float surveyRotateSpeed;
-		float timestamp;
+		float sensorTimestamp;
+		float surveyTimestamp;
 
 	public:
+		float userRotateSpeed;
+		float userMoveSpeed;
 		state botState;
 		sf::CircleShape shape;
 		sf::CircleShape point;
@@ -52,20 +53,20 @@ class Bot {
 		~Bot() { }
 		void update(const float dt);
 		void draw(const float dt);
-		void rotate(const int dir);
-		void move(const int dir);
+		void rotate(const float angle);
+		void move(const float distance);
 
 		/* sense */
 		void sense();
 		bool intersect(sf::CircleShape bot, sf::RectangleShape wall);
 		std::vector<sf::CircleShape> getPeripheralObstacles();
 		float getAngle(sf::Vector2f location);
-		std::vector<Obstacle *> updatePerceivedObstacles(std::vector<sf::Vector2f> locations);
+		std::vector<Obstacle *> getViewObstacles(std::vector<sf::Vector2f> locations);
 		std::vector<sf::Vector2f> ellipticLocalization(std::vector<float> r1, std::vector<float> r2);
 
 		/* navigation */
-		void survey(const float dt);
-		void encircleRoom(const float dt);
+		void survey(const float dt, bool init = 0);
+		void encircleRoom(const float dt, bool init = 0);
 };
 
 #endif

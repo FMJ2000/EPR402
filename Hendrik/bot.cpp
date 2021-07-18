@@ -6,18 +6,19 @@
 
 Bot::Bot(Game * game) {
 	this->game = game;
-	this->rotateSpeed = 2.f;
-	this->moveSpeed = 3.f;
+	this->userRotateSpeed = 2.f;
+	this->userMoveSpeed = 3.f;
 	this->surveyRotateSpeed = 120.f;
 
 	/* bot shape */
 	//this->shape = sf::CircleShape(30.f, 7);
-	this->shape.setRadius(30.f);
+	this->shape.setRadius(BOT_RADIUS);
 	this->shape.setOutlineColor(BOT_OUTLINE_COLOR);
 	this->shape.setFillColor(BOT_FILL_COLOR);
 	this->shape.setOutlineThickness(5.f);
 	this->shape.setOrigin(sf::Vector2f(this->shape.getRadius(), this->shape.getRadius()));
 	this->shape.setPosition(sf::Vector2f(this->game->window.getSize().x / 2, this->game->window.getSize().y / 2));
+	this->currentPos = this->shape.getPosition();
 
 	/* bot direction pointer */
 	this->point = sf::CircleShape(5.f, 3);
@@ -31,50 +32,64 @@ Bot::Bot(Game * game) {
 	sensor.setFillColor(BOT_SENSOR_COLOR);
 	sensor.setPosition(this->shape.getPosition());
 	sensor.setOrigin(sf::Vector2f(SENSOR_OFFSET + sensor.getSize().x, this->shape.getRadius()));
-	this->currentPos = sensor.getPosition();
 	this->sensors.push_back(sensor);
 	sensor.setOrigin(sf::Vector2f(-SENSOR_OFFSET, this->shape.getRadius()));
 	this->sensors.push_back(sensor);
 
-	this->shadeBlock.setRadius(30.f);
-	this->shadeBlock.setFillColor(SHADE_COLOR);
-	this->shadeBlock.setOrigin(sf::Vector2f(this->shadeBlock.getRadius(), this->shadeBlock.getRadius()));
+	/* state and timers */
+	this->sensorTimestamp = 0.f;
+	this->surveyTimestamp = 0.f;
+	this->botState = NONE;
 
-	this->timestamp = 0.f;
-	this->botState = SURVEY;
+	this->survey(0.f, true);
 }
 
 void Bot::update(const float dt) {
+	/* check if time to sense */
+	this->sensorTimestamp += dt;
+	if (this->sensorTimestamp >= SENSE_INTERVAL) this->sense();
+
+	/* issue action based on state */
 	switch (this->botState) {
 		case SURVEY:
 			this->survey(dt);
 			break;
 		
+		case PERIPHERAL:
+			this->encircleRoom(dt);
+			break;
+
 		default: break;
+	}
+
+	/* add node */
+	float distance = sqrt(pow(this->shape.getPosition().x - this->currentPos.x, 2) + pow(this->shape.getPosition().y - this->currentPos.y, 2));
+	if (distance >= BOT_RADIUS) {
+		nodes.push_back(Node(this->currentPos));
+		this->currentPos = this->shape.getPosition();
 	}
 }
 
 void Bot::draw(const float dt) {
-	for (auto block : this->shade) this->game->window.draw(block);
+	for (auto node : this->nodes) this->game->window.draw(node.shape);
 	for (auto obstacle : this->obstacles) this->game->window.draw(obstacle.shape);
 	this->game->window.draw(this->shape);
 	this->game->window.draw(this->point);
 	for (auto sensor : this->sensors) this->game->window.draw(sensor);
 }
 
-void Bot::rotate(const int dir) {
+void Bot::rotate(const float angle) {
 	float noise = normal(gen);
-	this->shape.rotate(dir * (this->rotateSpeed + noise));
-	this->point.rotate(dir * (this->rotateSpeed + noise));
-	for (int i = 0; i < this->sensors.size(); i++) this->sensors[i].rotate(dir * (this->rotateSpeed + noise));
-	this->sense();
+	this->shape.rotate(angle + noise);
+	this->point.rotate(angle + noise);
+	for (int i = 0; i < this->sensors.size(); i++) this->sensors[i].rotate(angle + noise);
 }
 
-void Bot::move(const int dir) {
+void Bot::move(const float distance) {
 	sf::Vector2f originalPos = this->shape.getPosition();
-	float noise = normal(gen) / this->moveSpeed;
-	float x = dir * (this->moveSpeed + noise) * (sin(-M_PI * this->shape.getRotation() / 180.f));
-	float y = dir * (this->moveSpeed + noise) * (cos(-M_PI * this->shape.getRotation() / 180.f));
+	float noise = normal(gen);
+	float x = (distance + noise) * (sin(-M_PI * this->shape.getRotation() / 180.f));
+	float y = (distance + noise) * (cos(-M_PI * this->shape.getRotation() / 180.f));
 	this->shape.move(sf::Vector2f(x, y));
 	this->point.move(sf::Vector2f(x, y));
 	for (int i = 0; i < this->sensors.size(); i++) this->sensors[i].move(sf::Vector2f(x, y));
@@ -87,27 +102,13 @@ void Bot::move(const int dir) {
 			for (int i = 0; i < this->sensors.size(); i++) this->sensors[i].setPosition(originalPos);
 			break;
 		}
-	}	
-
-	/* add shade */
-	bool add = true;
-	for (auto block : shade) {
-		if (pow(block.getPosition().x - originalPos.x, 2) < 100.f && pow(block.getPosition().y - originalPos.y, 2) < 100.f) {
-			add = false;
-			break;
-		}
 	}
-	if (add) {
-		this->shadeBlock.setPosition(originalPos);
-		this->shade.push_back(this->shadeBlock);
-	}
-	if (sqrt(pow(originalPos.x - this->currentPos.x, 2) + pow(originalPos.y - this->currentPos.y, 2)) >= 10.f) this->sense();
 }
 
 void Bot::sense() {
 	std::pair<std::vector<float>, std::vector<float>> distances = this->game->sense();		
 	std::vector<sf::Vector2f> locations = this->ellipticLocalization(distances.first, distances.second);
-	std::vector<Obstacle *> viewObstacles = this->updatePerceivedObstacles(locations);
+	std::vector<Obstacle *> viewObstacles = this->getViewObstacles(locations);
 	
 	for (auto location : locations) {
 		bool found = false;
@@ -123,20 +124,6 @@ void Bot::sense() {
 		}
 		if (!found) this->obstacles.push_back(Obstacle(location));
 	}
-
-	/*
-	for (size_t i = 0; i < viewObstacles.size(); i++) {
-		if (!viewObstacles[i]->found) viewObstacles[i]->lives--;
-		if (viewObstacles[i]->lives <= 0) {
-			for (size_t j = 0; j < this->obstacles.size(); j++) {
-				if (viewObstacles[i] == &this->obstacles[j]) {
-					this->obstacles.erase(this->obstacles.begin() + j);
-					break;
-				}
-			}
-		}
-	}
-	*/
 
 	for (size_t i = 0; i < this->obstacles.size(); i++) {
 		if (this->obstacles[i].confirmations < REQ_CONF) this->obstacles[i].lives--;
@@ -185,7 +172,7 @@ float Bot::getAngle(sf::Vector2f location) {
 	return angle;
 }
 
-std::vector<Obstacle *> Bot::updatePerceivedObstacles(std::vector<sf::Vector2f> locations) {
+std::vector<Obstacle *> Bot::getViewObstacles(std::vector<sf::Vector2f> locations) {
 	float angle1 = (this->shape.getRotation() - SENSOR_ANGLE) * M_PI / 180.f;
 	float angle2 = (this->shape.getRotation() + SENSOR_ANGLE) * M_PI / 180.f;
 	if (angle1 > M_PI) angle1 -= 2 * M_PI;
@@ -231,16 +218,19 @@ std::vector<sf::Vector2f> Bot::ellipticLocalization(std::vector<float> r1, std::
 	return output;
 }
 
-void Bot::survey(const float dt) {
-	this->rotate(this->surveyRotateSpeed * dt);
-	std::cout << this->surveyRotateSpeed * timestamp << std::endl;
-	this->timestamp += dt;
-	if (timestamp >= (180.f / this->surveyRotateSpeed)) {
-		this->botState = MANUAL;
-		timestamp = 0.f;
+void Bot::survey(const float dt, bool init) {
+	if (init) {
+		this->botState = SURVEY;
+		this->surveyTimestamp = 0.f;
 	}
+	this->rotate(this->surveyRotateSpeed * dt);
+	this->surveyTimestamp += dt;
+	if (this->surveyTimestamp >= (360.f / this->surveyRotateSpeed)) this->encircleRoom(0.f, true);
 }
 
-void Bot::encircleRoom(const float dt) {
+void Bot::encircleRoom(const float dt, bool init) {
+	if (init) {
+		this->botState = PERIPHERAL;
+	}
 
 }
