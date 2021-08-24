@@ -10,10 +10,16 @@
 #define WALL_COLOR sf::Color(0x7D, 0x3E, 00)
 #define WALL_SENSE_COLOR sf::Color(0x96, 0x4B, 0x00)
 
+enum gstate {
+	PAUSE,
+	PLAY
+};
+
 class Bot;
 
 class Game {
 	public:
+		gstate gameState;
 		std::vector<sf::RectangleShape> walls;
 		Bot * bot;
 		sf::RenderWindow window;

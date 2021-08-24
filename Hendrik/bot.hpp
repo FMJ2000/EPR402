@@ -4,10 +4,12 @@
 #include <SFML/Graphics.hpp>
 #include <vector>
 #include <random>
+#include <stack>
 #include "game.hpp"
 #include "obstacle.hpp"
 #include "node.hpp"
 
+#define MAX_DIST 10000.f
 #define BOT_RADIUS 30.f
 #define SENSE_INTERVAL 0.3f
 #define SENSOR_ANGLE 15
@@ -28,6 +30,7 @@ enum state {
 	NONE,
 	SURVEY,
 	PERIPHERAL,
+	TURN,
 	SWEEP
 };
 
@@ -37,14 +40,20 @@ class Bot {
 		std::vector<Node> nodes;
 		std::vector<Obstacle> obstacles;
 		sf::Vector2f currentPos;
-		float surveyRotateSpeed;
+		sf::Vector2f desiredPos;
+		sf::Vector2f shadowPos;
+		float rotateSpeed;
+		float moveSpeed;
 		float sensorTimestamp;
 		float surveyTimestamp;
+		int lastTurn;
 
 	public:
 		float userRotateSpeed;
 		float userMoveSpeed;
-		state botState;
+		float turnAngle;
+		float turnAngleDesired;
+		std::stack<state> botState;
 		sf::CircleShape shape;
 		sf::CircleShape point;
 		std::vector<sf::RectangleShape> sensors;
@@ -61,12 +70,14 @@ class Bot {
 		bool intersect(sf::CircleShape bot, sf::RectangleShape wall);
 		std::vector<sf::CircleShape> getPeripheralObstacles();
 		float getAngle(sf::Vector2f location);
-		std::vector<Obstacle *> getViewObstacles(std::vector<sf::Vector2f> locations);
+		std::vector<Obstacle *> getViewObstacles();
 		std::vector<sf::Vector2f> ellipticLocalization(std::vector<float> r1, std::vector<float> r2);
 
 		/* navigation */
-		void survey(const float dt, bool init = 0);
-		void encircleRoom(const float dt, bool init = 0);
+		void turn(const float dt);
+		void moveTo(const float dt);
+		void survey(const float dt);
+		void encircleRoom(const float dt);
 };
 
 #endif

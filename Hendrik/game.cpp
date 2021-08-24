@@ -9,6 +9,7 @@
 Game::Game() {
 	sf::ContextSettings settings;
 	settings.antialiasingLevel = 4;
+	this->gameState = PLAY;
 	this->window.create(sf::VideoMode(1200, 800), GAME_NAME, sf::Style::Default, settings);
 	this->window.setFramerateLimit(60);
 	this->bot = new Bot(this);
@@ -37,10 +38,11 @@ void Game::handleInput() {
 		if (event.type == sf::Event::Closed) this->window.close();
 		if (event.type == sf::Event::KeyPressed) {
 			if (event.key.code == sf::Keyboard::Q) this->window.close();
+			if (event.key.code == sf::Keyboard::Space) this->gameState = (this->gameState == PLAY) ? PAUSE : PLAY;
 		}
 	}
 
-	if (this->bot->botState == MANUAL) {
+	if (this->bot->botState.top() == MANUAL) {
 		if (sf::Keyboard::isKeyPressed(sf::Keyboard::W)) this->bot->move(-1 * this->bot->userMoveSpeed);
 		if (sf::Keyboard::isKeyPressed(sf::Keyboard::S)) this->bot->move(1 * this->bot->userMoveSpeed);
 		if (sf::Keyboard::isKeyPressed(sf::Keyboard::A)) this->bot->rotate(-1 * this->bot->userRotateSpeed);
@@ -49,7 +51,7 @@ void Game::handleInput() {
 }
 
 void Game::update(const float dt) {
-	this->bot->update(dt);
+	if (this->gameState == PLAY) this->bot->update(dt);
 }
 
 void Game::draw(const float dt) {
