@@ -1534,4 +1534,16 @@ Text Label 16100 5250 0    50   ~ 0
 IR2
 Text Label 16650 5250 0    50   ~ 0
 IR1
+Text Label 16450 5750 0    50   ~ 0
+VCC
+Text Label 16450 5850 0    50   ~ 0
+GND
+Text Label 16400 6050 0    50   ~ 0
+SDA1
+Text Label 16400 5950 0    50   ~ 0
+SCL
+Text Label 16450 6250 0    50   ~ 0
+INT1
+Text Label 16450 6150 0    50   ~ 0
+GND
 $EndSCHEMATC

@@ -1509,7 +1509,7 @@ VCC
 Text Label 10200 1650 0    50   ~ 0
 TX1
 Text Label 10300 1700 0    50   ~ 0
-TX2
+RX1
 Text Label 16100 4850 0    50   ~ 0
 GND
 Text Label 16650 4850 0    50   ~ 0
@@ -1545,5 +1545,5 @@ SCL
 Text Label 16450 6250 0    50   ~ 0
 INT1
 Text Label 16450 6150 0    50   ~ 0
-AD0
+GND
 $EndSCHEMATC
