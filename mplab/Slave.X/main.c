@@ -1,5 +1,5 @@
 /* 
- * File:   main.c
+ * File:   main.c in slave
  * Author: martin
  *
  * Created on 23 September 2021, 2:51 PM
@@ -72,7 +72,9 @@ int main() {
 	
 	UART_Write_String("Initialize Slave\r\n");
 	
-	for (;;);
+	for (;;) {
+		
+	}
 	return (EXIT_SUCCESS);
 }
 
@@ -83,7 +85,7 @@ void PORT_Init() {
 	
 	ANSELB = 0x0;
 	TRISB = 0xC;
-	LATB = 0x0;
+	//LATB = 0x0;
 	
 	/* I/O Port assignments */
 	U1RXR = 0x3;		// RB13 = RX
@@ -97,13 +99,13 @@ void INT_Init() {
 	INTCONSET = _INTCON_MVEC_MASK;
 	
 	/* Priority */
-	IPC8 = 0xA00;		// I2C2
+	IPC9 = 0xA00;		// I2C2
 	
 	/* Status reset */
 	IFS1 = 0x0;
 	
 	/* Control */
-	IEC1 = 0x3800;		// I2CM, I2CS, I2CB
+	IEC1 = 0x7000000;		// I2CM, I2CS, I2CB
 	
 	__builtin_enable_interrupts();
 }
@@ -126,14 +128,16 @@ void UART_Write_String(unsigned char * data) {
 }
 
 void I2C_Init() {
-	I2C2CON = 0x1000;
+	I2C2CON = 0x0;
+	I2C2CONSET = (_I2C2CON_SCLREL_MASK | _I2C2CON_STRICT_MASK);
 	I2C2STAT = 0x0;
-	I2C2ADD = 0x0;
+	I2C2ADD = 0x10;
 	I2C2BRG = (int)(PBCLK / (2 * I2C_BAUD) - 2);
 	I2C2CONSET = _I2C2CON_ON_MASK;
 }
 
 void __ISR(_I2C_2_VECTOR, IPL2SOFT) I2C_IntHandler() {
+	UART_Write_String("Interrupt\r\n");
 	unsigned char data;
 	if (IFS1bits.I2C2MIF) {
 		IFS1CLR = _IFS1_I2C2MIF_MASK;
