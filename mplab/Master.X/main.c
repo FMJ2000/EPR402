@@ -54,6 +54,7 @@
 #define I2C_W 0x0
 #define I2C_R 0x1
 #define IMU_ADD 0x68
+#define SLAVE_ADD 0x40
 
 /* MPU registers */
 #define XG_OFFS_TC         0x00
@@ -186,6 +187,7 @@ unsigned char I2C_Master_Read();
 int I2C_Read(unsigned char add, int len, unsigned char * data);
 int I2C_Write(unsigned char add, int len, unsigned char * data);
 int IMU_Init();
+unsigned char Slave_Read();
 
 int main() {
 	char msg[20];
@@ -423,47 +425,14 @@ int IMU_Read(int data[7]) {
 	return 1;
 }
 
-/*
-int I2C_Master_Write(unsigned char add, unsigned char * data) {
-	while (I2C2CONbits.SEN || I2C2CONbits.PEN || I2C2CONbits.RCEN || I2C2CONbits.ACKEN || I2C2STATbits.TRSTAT);
-	I2C2CONSET = _I2C2CON_SEN_MASK;
-	while (I2C2CONbits.SEN || I2C2CONbits.PEN || I2C2CONbits.RCEN || I2C2CONbits.ACKEN || I2C2STATbits.TRSTAT);
-	I2C2TRN = (add << 1) | I2C_W;
-	while (I2C2CONbits.SEN || I2C2CONbits.PEN || I2C2CONbits.RCEN || I2C2CONbits.ACKEN || I2C2STATbits.TRSTAT);
-	while (*data) {
-		if (I2C2STATbits.ACKSTAT) return 1;
-		while (I2C2CONbits.SEN || I2C2CONbits.PEN || I2C2CONbits.RCEN || I2C2CONbits.ACKEN || I2C2STATbits.TRSTAT);
-		I2C2TRN = *data++;
-	}
-	while (I2C2CONbits.SEN || I2C2CONbits.PEN || I2C2CONbits.RCEN || I2C2CONbits.ACKEN || I2C2STATbits.TRSTAT);
-	if (I2C2STATbits.ACKSTAT) return 1;
-	I2C2CONSET = _I2C2CON_PEN_MASK;
-	//LATAINV = 0x1;
-	return 0;
+unsigned char Slave_Read() {
+	I2C_Master_Start();
+	I2C_Master_Write((SLAVE_ADD << 1) | I2C_R);
+	unsigned char data = I2C_Master_Read();
+	I2C_Master_Ack_Nack(1);
+	I2C_Master_Stop();
+	return data;
 }
-
-int I2C_Master_Read(unsigned char add, unsigned char * data, int len) {
-	while (I2C2CONbits.SEN || I2C2CONbits.PEN || I2C2CONbits.RCEN || I2C2CONbits.ACKEN || I2C2STATbits.TRSTAT);
-	I2C2CONSET = _I2C2CON_SEN_MASK;
-	while (I2C2CONbits.SEN || I2C2CONbits.PEN || I2C2CONbits.RCEN || I2C2CONbits.ACKEN || I2C2STATbits.TRSTAT);
-	I2C2TRN = (add << 1) | I2C_R;
-	while (I2C2CONbits.SEN || I2C2CONbits.PEN || I2C2CONbits.RCEN || I2C2CONbits.ACKEN || I2C2STATbits.TRSTAT);
-	if (I2C2STATbits.ACKSTAT) return 1;
-	for (int i = 0; i < len; i++) {
-		I2C2CONSET = _I2C2CON_RCEN_MASK;
-		while (!I2C2STATbits.RBF);
-		//IFS1CLR = _IFS1_I2C2MIF_MASK;
-		data[i] = I2C2RCV;
-		while (I2C2CONbits.SEN || I2C2CONbits.PEN || I2C2CONbits.RCEN || I2C2CONbits.ACKEN || I2C2STATbits.TRSTAT);
-		if (i != len - 1) I2C2CONCLR = _I2C2CON_ACKDT_MASK;
-		else I2C2CONSET = _I2C2CON_ACKDT_MASK;
-		I2C2CONSET = _I2C2CON_ACKEN_MASK;
-	}
-	while (I2C2CONbits.SEN || I2C2CONbits.PEN || I2C2CONbits.RCEN || I2C2CONbits.ACKEN || I2C2STATbits.TRSTAT);
-	I2C2CONSET = _I2C2CON_PEN_MASK;
-	return 0;
-}
-*/
 
 void __ISR (_TIMER_3_VECTOR, IPL2SOFT) TMR3_IntHandler() {
 	LATAINV = 0x1;
@@ -473,5 +442,7 @@ void __ISR (_TIMER_3_VECTOR, IPL2SOFT) TMR3_IntHandler() {
 	int ret = IMU_Read(data);
 	snprintf(msg, 80, "ax: %d, ay: %d, az: %d, t: %d, gx: %d, gy: %d, gz: %d \r\n", data[0], data[1], data[2], data[3], data[4], data[5], data[6]);
 	UART_Write_String(msg);
-	//letter = (letter == 'Z') ? 'A' : letter + 1;
+	unsigned char slave = Slave_Read();
+	snprintf(msg, 80, "slave: %c\r\n", slave);
+	UART_Write_String(msg);
 } 

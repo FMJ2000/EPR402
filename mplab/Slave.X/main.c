@@ -53,7 +53,7 @@
 #define UART_BAUD 38400l
 #define I2C_W 0x0
 #define I2C_R 0x1
-#define I2C_ADD 0x78
+#define SLAVE_ADD 0x40
 
 void PORT_Init();
 void INT_Init();
@@ -61,20 +61,17 @@ void UART_Init();
 void UART_Write(unsigned char data);
 void UART_Write_String(unsigned char * data);
 void I2C_Init();
-int I2C_Slave_Write(unsigned char add, unsigned char * data);
-int I2C_Slave_Read(unsigned char add, unsigned char * data, int len);
+int I2C_Slave_Write(unsigned char byte);
 
 int main() {
 	PORT_Init();
 	INT_Init();
-	UART_Init();
+	//UART_Init();
 	I2C_Init();
 	
-	UART_Write_String("Initialize Slave\r\n");
+	//UART_Write_String("Initialize Slave\r\n");
 	
-	for (;;) {
-		
-	}
+	for (;;);
 	return (EXIT_SUCCESS);
 }
 
@@ -99,7 +96,7 @@ void INT_Init() {
 	INTCONSET = _INTCON_MVEC_MASK;
 	
 	/* Priority */
-	IPC9 = 0xA00;		// I2C2
+	IPC9 = 0xA0000;		// I2C2
 	
 	/* Status reset */
 	IFS1 = 0x0;
@@ -129,15 +126,24 @@ void UART_Write_String(unsigned char * data) {
 
 void I2C_Init() {
 	I2C2CON = 0x0;
-	I2C2CONSET = (_I2C2CON_SCLREL_MASK | _I2C2CON_STRICT_MASK);
+	I2C2CONSET = _I2C2CON_SCLREL_MASK;
 	I2C2STAT = 0x0;
-	I2C2ADD = 0x10;
+	I2C2ADD = SLAVE_ADD;
+	I2C2MSK = 0x0;
 	I2C2BRG = (int)(PBCLK / (2 * I2C_BAUD) - 2);
 	I2C2CONSET = _I2C2CON_ON_MASK;
 }
 
+int I2C_Slave_Write(unsigned char byte) {
+	I2C2TRN = byte;
+	//while (I2C2STATbits.TBF);
+	if (I2C2STATbits.ACKSTAT) return 0;
+	return 1;
+}
+
 void __ISR(_I2C_2_VECTOR, IPL2SOFT) I2C_IntHandler() {
-	UART_Write_String("Interrupt\r\n");
+	//UART_Write_String("Interrupt\r\n");
+	LATAINV = 0x1;
 	unsigned char data;
 	if (IFS1bits.I2C2MIF) {
 		IFS1CLR = _IFS1_I2C2MIF_MASK;
@@ -149,10 +155,21 @@ void __ISR(_I2C_2_VECTOR, IPL2SOFT) I2C_IntHandler() {
 		IFS1CLR = _IFS1_I2C2SIF_MASK;
 		if (I2C2STATbits.R_W == 0 && I2C2STATbits.D_A == 0) {
 			/* address + write */
+			I2C2CONbits.SCLREL = 1;
+		} else if (I2C2STATbits.R_W == 0 && I2C2STATbits.D_A == 1) {
+			/* data + write */
 			data = I2C2RCV;
 			I2C2CONbits.SCLREL = 1;
-			LATAINV = 0x1;
-			UART_Write(data);
-		}
+		} else if (I2C2STATbits.R_W == 1 && I2C2STATbits.D_A == 0) {
+			/* address + read */
+			data = I2C2RCV;
+			I2C_Slave_Write('H');
+			I2C2CONbits.SCLREL = 1;
+		} else if (I2C2STATbits.R_W == 1 && I2C2STATbits.D_A == 1) {
+			/* data + read */
+			data = I2C2RCV;
+			I2C_Slave_Write('H');
+			I2C2CONbits.SCLREL = 1;
+		} 
 	}
 }
