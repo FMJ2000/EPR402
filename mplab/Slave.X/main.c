@@ -35,116 +35,51 @@
 #pragma config FWDTWINSZ = WINSZ_25     // Watchdog Timer Window Size (Window Size is 25%)
 
 // DEVCFG0
-#pragma config JTAGEN = ON              // JTAG Enable (JTAG Port Enabled)
+#pragma config JTAGEN = OFF              // JTAG Enable (JTAG Port Disabled)
 #pragma config ICESEL = ICS_PGx1        // ICE/ICD Comm Channel Select (Communicate on PGEC1/PGED1)
 #pragma config PWP = OFF                // Program Flash Write Protect (Disable)
 #pragma config BWP = OFF                // Boot Flash Write Protect bit (Protection Disabled)
 #pragma config CP = OFF                 // Code Protect (Protection Disabled)
 
-#include <xc.h>
-#include <proc/p32mx220f032b.h>
-#include <sys/attribs.h>
-#include <stdio.h>
-#include <stdlib.h>
+#include "main.h"
+#include "slave.h"
 
-#define SYSCLK 64000000l
-#define PBCLK 32000000l
-#define I2C_BAUD 100000l
-#define UART_BAUD 38400l
-#define I2C_W 0x0
-#define I2C_R 0x1
-#define SLAVE_ADD 0x40
-
-void PORT_Init();
-void INT_Init();
-void UART_Init();
-void UART_Write(unsigned char data);
-void UART_Write_String(unsigned char * data);
-void I2C_Init();
-int I2C_Slave_Write(unsigned char byte);
+static Slave slave = { .usState = 0 };
 
 int main() {
 	PORT_Init();
 	INT_Init();
-	//UART_Init();
+	TMR_Init();
+	ADC_Init();
 	I2C_Init();
 	
-	//UART_Write_String("Initialize Slave\r\n");
+	T2CONSET = _T2CON_ON_MASK;
+	T3CONSET = _T3CON_ON_MASK;
+	T4CONSET = _T4CON_ON_MASK;
+	T5CONSET = _T5CON_ON_MASK;
 	
 	for (;;);
 	return (EXIT_SUCCESS);
 }
 
-void PORT_Init() {
-	ANSELA = 0x0;
-	TRISA = 0x0;
-	LATA = 0x0;	
-	
-	ANSELB = 0x0;
-	TRISB = 0xC;
-	//LATB = 0x0;
-	
-	/* I/O Port assignments */
-	U1RXR = 0x3;		// RB13 = RX
-	RPA2R = 0x5;		// RA2 = OC4
-	RPA4R = 0x6;		// RA4 = OC5
-	RPB15R = 0x1;		// RB15 = TX
-}
-
-void INT_Init() {
-	__builtin_disable_interrupts();
-	INTCONSET = _INTCON_MVEC_MASK;
-	
-	/* Priority */
-	IPC9 = 0xA0000;		// I2C2
-	
-	/* Status reset */
-	IFS1 = 0x0;
-	
-	/* Control */
-	IEC1 = 0x7000000;		// I2CM, I2CS, I2CB
-	
-	__builtin_enable_interrupts();
-}
-
-void UART_Init() {
-	U1MODE = 0x0;
-	U1STA = 0x0;
-	U1BRG = (int)(PBCLK / (16 * UART_BAUD) - 1);
-	U1STASET = (_U1STA_UTXISEL0_MASK | _U1STA_URXEN_MASK | _U1STA_UTXEN_MASK);
-	U1MODESET = _U1MODE_ON_MASK;	
-}
-
-void UART_Write(unsigned char data) {
-	while (U1STAbits.UTXBF);
-	U1TXREG = data;
-}
-
-void UART_Write_String(unsigned char * data) {
-	while (*data) UART_Write(*data++);
-}
-
-void I2C_Init() {
-	I2C2CON = 0x0;
-	I2C2CONSET = _I2C2CON_SCLREL_MASK;
-	I2C2STAT = 0x0;
-	I2C2ADD = SLAVE_ADD;
-	I2C2MSK = 0x0;
-	I2C2BRG = (int)(PBCLK / (2 * I2C_BAUD) - 2);
-	I2C2CONSET = _I2C2CON_ON_MASK;
-}
-
-int I2C_Slave_Write(unsigned char byte) {
-	I2C2TRN = byte;
-	//while (I2C2STATbits.TBF);
-	if (I2C2STATbits.ACKSTAT) return 0;
+int I2C_Slave_Write() {
+	US_Min(&slave);
+	slave.data[8] = (unsigned char) TMR3;
+	slave.data[9] = (unsigned char) TMR4;
+	I2C2TRN = slave.data[slave.i2cIndex];
+	I2C2CONbits.SCLREL = 1;
+	while (I2C2STATbits.TBF);
+	if (slave.i2cIndex == 11) slave.data[slave.i2cIndex] = 0x0;
+	if (I2C2STATbits.ACKSTAT) {
+		slave.i2cIndex = 0;
+		return 0;
+	}
+	slave.i2cIndex++;
 	return 1;
 }
 
 void __ISR(_I2C_2_VECTOR, IPL2SOFT) I2C_IntHandler() {
-	//UART_Write_String("Interrupt\r\n");
-	LATAINV = 0x1;
-	unsigned char data;
+	unsigned char recv;
 	if (IFS1bits.I2C2MIF) {
 		IFS1CLR = _IFS1_I2C2MIF_MASK;
 	}
@@ -158,18 +93,50 @@ void __ISR(_I2C_2_VECTOR, IPL2SOFT) I2C_IntHandler() {
 			I2C2CONbits.SCLREL = 1;
 		} else if (I2C2STATbits.R_W == 0 && I2C2STATbits.D_A == 1) {
 			/* data + write */
-			data = I2C2RCV;
+			recv = I2C2RCV;
 			I2C2CONbits.SCLREL = 1;
 		} else if (I2C2STATbits.R_W == 1 && I2C2STATbits.D_A == 0) {
 			/* address + read */
-			data = I2C2RCV;
-			I2C_Slave_Write('H');
-			I2C2CONbits.SCLREL = 1;
+			recv = I2C2RCV;
+			I2C_Slave_Write();
 		} else if (I2C2STATbits.R_W == 1 && I2C2STATbits.D_A == 1) {
 			/* data + read */
-			data = I2C2RCV;
-			I2C_Slave_Write('H');
-			I2C2CONbits.SCLREL = 1;
+			recv = I2C2RCV;
+			I2C_Slave_Write();
 		} 
 	}
+}
+
+void __ISR(_TIMER_2_VECTOR, IPL2SOFT) TMR2_IntHandler() {
+	IFS0CLR = _IFS0_T2IF_MASK;
+	unsigned int duration = TMR2;
+	slave.usData[slave.usBufIndex][2*slave.usState+1] = duration & 0xFF;
+	slave.usData[slave.usBufIndex][2*slave.usState] = (duration >> 8) & 0xFF;
+	slave.usBufIndex = (slave.usBufIndex + 1) % US_BUF_LEN; 
+}
+
+void __ISR(_TIMER_5_VECTOR, IPL2SOFT) TMR5_IntHandler() {
+	LATBINV = _LATB_LATB8_MASK;
+	IFS0CLR = _IFS0_T5IF_MASK;
+	slave.usState = (slave.usState + 1) % N_STATES;
+	Read_Ultrasonic(&slave);
+	slave.adcCounter++;
+	if (slave.adcCounter == F_SAMPLE) {
+		TMR3 = 0x0;
+		TMR4 = 0x0;
+		AD1CON1SET = _AD1CON1_SAMP_MASK;	// start battery sample
+		slave.adcCounter = 0;
+	}
+}
+
+void __ISR(_ADC_VECTOR, IPL2SOFT) ADC_IntHandler() {
+	if (IFS0bits.AD1IF) {
+		IFS0CLR = _IFS0_AD1IF_MASK;
+		slave.data[10] = (unsigned char)((ADC1BUF0 >> 8) & 0xFF);
+	}
+}
+
+void __ISR(_EXTERNAL_0_VECTOR, IPL2SOFT) Ext0_IntHandler() {
+	IFS0CLR = _IFS0_INT0IF_MASK;
+	slave.data[11] = 0x1;
 }
