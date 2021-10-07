@@ -41,12 +41,10 @@
 #pragma config BWP = OFF                // Boot Flash Write Protect bit (Protection Disabled)
 #pragma config CP = OFF                 // Code Protect (Protection Disabled)
 
-/* Bot object that contains state */
-//static Bot bot = { .pos = {0} };
-
 #include <xc.h>
 #include <proc/p32mx220f032b.h>
 #include <sys/attribs.h>
+#include <stdlib.h>
 #include <math.h>
 
 /* definitions */
@@ -57,6 +55,7 @@
 #define IMU_ADD 0x68
 #define SLAVE_ADD 0x40
 #define PWM_T 0xFFF
+#define PWM_H 0x5FF                     // normal full speed
 #define IMU_RES 32768.0                 // IMU data resolution
 #define ACC_SCALE 4.0
 #define GYRO_SCALE 500.0
@@ -71,9 +70,20 @@
 #define DT 0.065536                     // 1 / (1000000 / 2^16)
 #define INV_N_ODO 0.05                  // inverse of amount of odometer holes
 #define ODO_SPEED 1.1                   // wheel circumference / #odometer holes = 22 / 20
-#define SOUND_SPEED 330000l
-#define PI 3.1415926535897932384650288
-#define _2_PI 2 * PI
+#define SOUND_SPEED 0.033
+#define _2_PI_INV 0.1591549		// inverse of 2 pi
+#define PI_2 1.570796			// half pi
+#define MIN_DIST 3.0                   // minimum distance before new RRT node chosen
+#define MAX_DIST 100.0                  // maximum sphere of new RRT node
+#define K_P 0.2                         // Proportional controller
+#define K_I 0.001                       // Integral controller
+#define Q 0.05                          // process covariance noise
+#define R 0.05                          // measurement covariance noise
+#define F_UART 0
+#define F_PWM 1
+#define F_SAMPLE 15
+#define MOVE_MASK 0x2
+#define DIR_MASK 0x1
 
 /* MPU registers */
 #define XG_OFFS_TC         0x00
@@ -189,25 +199,34 @@
 
 /* Bot object that contains state */
 typedef struct Bot {
-    float pos[3];           // position [x, y, rot]
-    float desiredPos[3];    // desired position [x, y, rot]
-    float speed[2];         // current speed of wheels
-    float view[4];          // ultrasonic distance reading
-    unsigned char odo[2];           // odometer reading
-    float temp;             // temperature reading
-    float acc[3];           // IMU acceleration reading
-    float gyro[3];          // IMU gyroscope reading
-    unsigned char fall;              // bot fall hazard warning flags
-    unsigned char bat;              // battery percentage remaining
+    float pos[2];           // position [x, y]
+    float rotMu;            // mean of rotation estimation
+    float rotSigma;         // covariance of rotation estimation
+    float rPos[2];          // desired position [x, y]
+    float vel[2];           // current speed of wheels
+    float eRotInt;          // integral of rotation error
     float duty[2];          // PWM duty cycle for wheels
+    float acc[3];           // IMU acceleration reading
+    float gyro[3];          // IMU gyroscope reading    
+    float bat;		    // battery percentage remaining
+    float view[4];          // ultrasonic distance reading
+    unsigned char count;    // sample count
+    char state;		    // { direction<0>, move<1> }
+    /*unsigned char odo[2];           // odometer reading
+    float temp;             // temperature reading
+    unsigned char fall;              // bot fall hazard warning flags
     char msg[256];          // UART output message
-    char ** map;            // probabilistic map of world
+    char ** map;            // probabilistic map of world*/
 } Bot;
 
 static Bot bot = { .pos = {0} };
 
 /* Peripheral functions */
 void Init();
+#if F_UART
+void UART_Write(unsigned char data);
+void UART_Write_String(unsigned char * data, int len);
+#endif
 void I2C_Master_Init();
 void I2C_Master_Start();
 void I2C_Master_Stop();
@@ -219,223 +238,308 @@ unsigned char I2C_Master_Read();
 void IMU_Init();
 
 /* Bot functions */
-void Bot_Peripheral();
-void Bot_Navigate();
+void Bot_Update();
+void Bot_Controller();
 
 /* Helper functions */
 float charToFloat(char val1, char val2, float weight);
+float unsignedCharToFloat(char val1, char val2, float weight);
+void rotationMatrix(float * x, float * y);
 
 int main() {
+    /* delay startup to allow peripherals to initialize */
+    long delay = 640000l;
+    while (delay--);
+    
+    bot.state |= MOVE_MASK;	    // start engines
+    
     Init();
-    bot.desiredPos[0] = 20.0;  // move 20 cm forward
+    IMU_Init();
     
     for (;;);    
     return EXIT_SUCCESS;
 }
 
 /* Bot functions */
-void Bot_Peripheral() {
-    unsigned char data[IMU_MSG_LEN + SLAVE_MSG_LEN];
+void Bot_Update() {
+    unsigned char data[IMU_MSG_LEN + SLAVE_MSG_LEN] = {0};
     
-	I2C_Master_Start();
-	I2C_Master_Write((IMU_ADD << 1) | I2C_W);
-	I2C_Master_Write(ACCEL_XOUT_H);
-	I2C_Master_Stop();
-	
     /* get readings from IMU: { axh, axl, ayh, ayl, azh, azl, th, tl, gxh, gxl, gyh, gyl, gzh, gzl } */
-	I2C_Master_Start();
-	I2C_Master_Write((IMU_ADD << 1) | I2C_R);
-	for (int i = 0; i < IMU_MSG_LEN; i++) {
-		data[i] = I2C_Master_Read();
+    I2C_Master_Start();
+    I2C_Master_Write((IMU_ADD << 1) | I2C_W);
+    I2C_Master_Write(ACCEL_XOUT_H);
+    I2C_Master_Stop();
+    I2C_Master_Start();
+    I2C_Master_Write((IMU_ADD << 1) | I2C_R);
+    for (int i = 0; i < IMU_MSG_LEN; i++) {
+	data[i] = I2C_Master_Read();
         if (i != IMU_MSG_LEN - 1) I2C_Master_Ack_Nack(0);
-	}
+    }
     I2C_Master_Ack_Nack(1);
-	I2C_Master_Stop();
+    I2C_Master_Stop();
     
     /* get readings from slave: { v1h, v1l, v2h, v2l, v3h, v3l, v4h, v4l, odl, odr, bat, usr } */
-	I2C_Master_Start();
-	I2C_Master_Write((SLAVE_ADD << 1) | I2C_R);
-	for (int i = 0; i < SLAVE_MSG_LEN; i++) {
-		data[i] = I2C_Master_Read();
-		if (i != SLAVE_MSG_LEN - 1) I2C_Master_Ack_Nack(0);
-	}
+    I2C_Master_Start();
+    I2C_Master_Write((SLAVE_ADD << 1) | I2C_R);
+    for (int i = 0; i < SLAVE_MSG_LEN; i++) {
+	data[IMU_MSG_LEN + i] = I2C_Master_Read();
+	if (i != SLAVE_MSG_LEN - 1) I2C_Master_Ack_Nack(0);
+    }
     I2C_Master_Ack_Nack(1);
-	I2C_Master_Stop();
+    I2C_Master_Stop();
+    
+#if F_UART
+    if (bot.count++ == 1/*F_SAMPLE*/) {
+	UART_Write_String(data, IMU_MSG_LEN + SLAVE_MSG_LEN);
+	bot.count = 0;
+    }
+#endif
     
     /* save in bot */
     for (int i = 0; i < 3; i++) {
         bot.acc[i] = charToFloat(data[2*i], data[2*i+1], ACC_RES);
-		bot.gyro[i] = charToFloat(data[2*i+8], data[2*i+9], GYRO_RES);
-        bot.view[i] = charToFloat(data[2*i+14], data[2*i+15], SOUND_SPEED / 1000000.0);
-	}
-    bot.view[3] = charToFloat(data[20], data[21], SOUND_SPEED / 1000000.0);
+	bot.gyro[i] = charToFloat(data[2*i+8], data[2*i+9], GYRO_RES);
+        bot.view[i] = unsignedCharToFloat(data[2*i+14], data[2*i+15], SOUND_SPEED);
+    }
+    /*bot.view[3] = charToFloat(data[20], data[21], SOUND_SPEED / 1000000.0);
 	bot.temp = charToFloat(data[6], data[7], TEMP_SCALE) + TEMP_OFFSET;
     bot.odo[0] = data[22]; //charToFloat(0, data[22], 1);
-    bot.odo[1] = data[23]; //charToFloat(0, data[23], 1);
-    bot.bat = data[24]; //charToFloat(0, data[24], 1);
-	
+    bot.odo[1] = data[23]; //charToFloat(0, data[23], 1);*/
+    bot.bat = unsignedCharToFloat(0, data[24], 1);
+
+    /* Kalman filter for orientation estimation */
+    float eRotMu = bot.rotMu + bot.gyro[2] * DT;
+    float eRotSigma = bot.rotSigma + Q;
+    float z = atan2(sqrt(bot.acc[0]*bot.acc[0] + bot.acc[1]*bot.acc[1]), bot.acc[2]);
+    float K = eRotSigma / (eRotSigma + R);
+    bot.rotMu = eRotMu + K * (z - eRotMu);
+    bot.rotSigma = eRotSigma - K * eRotSigma;
+    
+    /* update position */
+    rotationMatrix(bot.vel, bot.acc);
+    rotationMatrix(bot.pos, bot.vel);
+    
+    /* PI controller */
+    float rRotMu = atan2(bot.rPos[1] - bot.pos[1], bot.rPos[0] - bot.pos[0]);
+    eRotMu = rRotMu - bot.rotMu;
+    float halfPWM = 0.5 - _2_PI_INV * fabs(eRotMu);
+    bot.eRotInt += eRotMu * DT;
+    bot.duty[0] = halfPWM - K_P * eRotMu - K_I * bot.eRotInt;
+    bot.duty[1] = halfPWM + K_P * eRotMu + K_I * bot.eRotInt;
+    
+    if (bot.view[0] < MIN_DIST/* || bot.view[1] < MIN_DIST || bot.view[2] < MIN_DIST*/) {
+	bot.state &= ~MOVE_MASK;
+	//bot.state |= DIR_MASK;
+	bot.count = 0;
+	T4CONSET = _T4CON_ON_MASK;
+    }
+    
+    Bot_Controller();
+    
+    /* check if RRT node still valid, update otherwise */	
+    if (fabs(bot.rPos[0] - bot.pos[0]) + fabs(bot.rPos[1] - bot.pos[1]) < MIN_DIST) {
+        bot.rPos[0] = bot.pos[0] + MAX_DIST * (rand() - 0.5);
+        bot.rPos[1] = bot.pos[1] + MAX_DIST * (rand() - 0.5);
+    }
 }
 
-void Bot_Navigate() {
-    /*bot.speed[0] = bot.odo[0] * ODO_SPEED;
-    bot.speed[1] = bot.odo[1] * ODO_SPEED;*/
-    /* update bot position and orientation */
-    bot.pos[0] += ((bot.odo[0] + bot.odo[1]) >> 1) * cos(bot.pos[2]) * DT;
-    bot.pos[1] += ((bot.odo[0] + bot.odo[1]) >> 1) * sin(bot.pos[2]) * DT;
-    bot.pos[2] = atan2(INV_N_ODO * (bot.odo[0] - bot.odo[1]), 1);
+void Bot_Controller() {
+    float oc4 = bot.duty[0];
+    float oc5 = bot.duty[1];
+    if (!(bot.state & MOVE_MASK)) {
+	oc4 = 0;
+	oc5 = 0;
+    } else if (bot.state & DIR_MASK) {
+	oc4 = 1 - oc4;
+	oc5 = 1 - oc5;
+	LATBSET = _LATB_LATB4_MASK;
+	LATASET = _LATA_LATA3_MASK;
+    } else {
+	LATBCLR = _LATB_LATB4_MASK;
+	LATACLR = _LATA_LATA3_MASK;
+    }
     
-    /* calculate new desired orientation */
-    bot.desiredPos[2] = atan2(bot.desiredPos[1] - bot.pos[1], bot.desiredPos[0] - bot.pos[0]);
-    //bot.duty[0] = 
+    OC4RS = (int)(oc4 * PWM_H);
+    OC5RS = (int)(oc5 * PWM_H);
     
-    OC4RS = (int)(bot.duty[0] * PWM_T);
-	OC5RS = (int)(bot.duty[1] * PWM_T);
+    if (bot.rotMu > PI_2) LATBSET = _LATB_LATB10_MASK;
+    else if (bot.rotMu < -PI_2) LATBSET = _LATB_LATB11_MASK;
+    else {
+	LATBCLR = _LATB_LATB10_MASK;
+	LATBCLR = _LATB_LATB11_MASK;
+    }
 }
 
 /* Peripheral functions */
 void Init() {
+    /* Random function */
+    srand(PORTA);
+    
     /* Ports */
     ANSELA = 0x0;
-	TRISA = 0x1;
-	
-	ANSELB = 0x0;
-	TRISB = 0x38C;
-	LATB = _LATB_LATB10_MASK;		// on button
-	
-	U1RXR = 0x3;		// RB13 = RX
-	RPA2R = 0x5;		// RA2 = OC4
-	RPA4R = 0x6;		// RA4 = OC5
-	RPB15R = 0x1;		// RB15 = TX
-	INT1R = 0x4;		// RB9 = INT1
-	INT3R = 0x4;		// RB8 = INT3
-	INT4R = 0x0;		// RA0 = INT4
+    TRISA = 0x0;
+    LATA = 0x0;
+
+    ANSELB = 0x0;
+    TRISB = 0x38C;
+
+    U1RXR = 0x3;		// RB13 = RX
+    RPA2R = 0x5;		// RA2 = OC4
+    RPA4R = 0x6;		// RA4 = OC5
+    RPB15R = 0x1;		// RB15 = TX
+    INT1R = 0x4;		// RB9 = INT1
+    INT3R = 0x4;		// RB8 = INT3
+    INT4R = 0x0;		// RA0 = INT4
     
     /* Interrupts */
     __builtin_disable_interrupts();
-	INTCONSET = _INTCON_MVEC_MASK;
-	
-	/* Priority */
-	IPC0 = 0xA000000;		// INT0
-	IPC1 = 0xA000000;		// INT1
-	IPC3 = 0xA00000A;		// INT3, TMR3
-	IPC4 = 0xA000000;		// INT4
-	IPC2 = 0xA;             // TMR2
-	IPC4 = 0xA0000;         // OC4
-	IPC5 = 0xA000A;         // OC5
-	IFS0 = 0x0;
-	IFS1 = 0x0;
-	IEC0 = 0x8C46308;       // INT0, INT1, TMR2, INT2, TMR3, INT3, OC4, INT4, OC5
-	__builtin_enable_interrupts();
+    INTCONSET = _INTCON_MVEC_MASK;
+    IPC0 = 0xA000000;		// INT0
+    IPC1 = 0xA000000;		// INT1
+    IPC3 = 0xA00000A;		// INT3, TMR3
+    IPC4 = 0xA00000A;		// INT4, TMR4
+    IFS0 = 0x0;
+    IFS1 = 0x0;
+    IEC0 = 0x8C6108;       // INT0, INT1, INT2, TMR3, INT3, TMR4, INT4
+    __builtin_enable_interrupts();
     
-    /* Timer 2 */
-	TMR2 = 0x0;
-	PR2 = PWM_T;
+    /* Timers + PWM */
+    TMR2 = 0x0;
+    PR2 = PWM_T;
+    OC4R = 0x0;
+    OC4RS = 0x0;
+    OC4CON = 0x6;		// PWM mode without fault protection
+    OC5R = 0x0;
+    OC5RS = 0x0;
+    OC5CON = 0x6;
     T2CON = 0x8060;		// 1:64 prescaler = 500 kHz
-	
-	/* Timer 3 */
-	TMR3 = 0x0;
-	PR3 = 0xFFFF;		// f = 15 Hz
+    OC4CONSET = _OC4CON_ON_MASK;
+    OC5CONSET = _OC5CON_ON_MASK;
+    
+    /* Sampling timer */
+    TMR3 = 0x0;
+    PR3 = 0xFFFF;		// f = 15 Hz
     T3CON = 0x8050;		// 1:32 prescaler = 1 MHz
     
-    /* PWM 1 */
-	OC4RS = 0x0;
-	OC4CON = 0x6;		// PWM mode without fault protection
-	
-	/* PWM 2 */
-	OC5RS = 0x0;
-	OC5CON = 0x6;
+    /* Long counter */
+    TMR4 = 0x0;
+    PR4 = 0xFFFF;		// 2 Hz
+    T4CON = 0x70;		// 1:256 prescaler = 125 kHz
     
     /* I2C */
     I2C2BRG = (int)(PBCLK / (2 * I2C_BAUD) - 2);
-	I2C2CONSET = _I2C2CON_ON_MASK;
+    I2C2CONSET = _I2C2CON_ON_MASK;
+    
+#if F_UART
+    /* UART */
+    U1MODE = 0x0;
+    U1STA = 0x0;
+    U1BRG = 51;//(int)(PBCLK / (16 * UART_BAUD) - 1);
+    U1STASET = (_U1STA_UTXISEL0_MASK | _U1STA_URXEN_MASK | _U1STA_UTXEN_MASK);
+    U1MODESET = _U1MODE_ON_MASK;
+#endif
 }
 
+#if F_UART
+void UART_Write(unsigned char data) {
+    while (U1STAbits.UTXBF);
+    U1TXREG = data;
+}
+
+void UART_Write_String(unsigned char * data, int len) {
+    while (len--) {
+	UART_Write(*data);
+	data++;
+    }
+}
+#endif
+
 void I2C_Master_Start() {
-	while (I2C2CON & 0x1F & I2C2STATbits.TRSTAT);
-	I2C2CONbits.SEN = 1;
-	while (I2C2CONbits.SEN);
+    while (I2C2CON & 0x1F & I2C2STATbits.TRSTAT);
+    I2C2CONbits.SEN = 1;
+    while (I2C2CONbits.SEN);
 }
 
 void I2C_Master_Stop() {
-	while (I2C2CON & 0x1F & I2C2STATbits.TRSTAT);
-	I2C2CONbits.PEN = 1;
-	while (I2C2CONbits.PEN);
+    while (I2C2CON & 0x1F & I2C2STATbits.TRSTAT);
+    I2C2CONbits.PEN = 1;
+    while (I2C2CONbits.PEN);
 }
 
 void I2C_Master_Restart() {
-	while (I2C2CON & 0x1F & I2C2STATbits.TRSTAT);
-	I2C2CONbits.RSEN = 1;
-	while (I2C2CONbits.RSEN);
+    while (I2C2CON & 0x1F & I2C2STATbits.TRSTAT);
+    I2C2CONbits.RSEN = 1;
+    while (I2C2CONbits.RSEN);
 }
 
 void I2C_Master_Ack_Nack(int val) {
-	// ACK = 0 (slave should send another byte)
-	// NACK = 1 (no more bytes requested by slave)
-	while (I2C2CON & 0x1F & I2C2STATbits.TRSTAT);
-	I2C2CONbits.ACKDT = val;
-	I2C2CONbits.ACKEN = 1;
-	while (I2C2CONbits.ACKEN);
+    // ACK = 0 (slave should send another byte)
+    // NACK = 1 (no more bytes requested by slave)
+    while (I2C2CON & 0x1F & I2C2STATbits.TRSTAT);
+    I2C2CONbits.ACKDT = val;
+    I2C2CONbits.ACKEN = 1;
+    while (I2C2CONbits.ACKEN);
 }
 
 int I2C_Master_Write(unsigned char byte) {
-	I2C2TRN = byte;
-	while (I2C2STATbits.TRSTAT);
-	if (I2C2STATbits.ACKSTAT) return 0;
-	return 1;
+    I2C2TRN = byte;
+    while (I2C2STATbits.TRSTAT);
+    if (I2C2STATbits.ACKSTAT) return 0;
+    return 1;
 }
 
 unsigned char I2C_Master_Read() {
-	I2C2CONbits.RCEN = 1;
-	while (!I2C2STATbits.RBF);
-	return I2C2RCV;
+    I2C2CONbits.RCEN = 1;
+    while (!I2C2STATbits.RBF);
+    return I2C2RCV;
 }
 
 void IMU_Init() {
-	I2C_Master_Start();
-	I2C_Master_Write((IMU_ADD << 1) | I2C_W);
-	I2C_Master_Write(SMPLRT_DIV);
-	I2C_Master_Write(0x07);
-	I2C_Master_Stop();
-	
-	I2C_Master_Start();
-	I2C_Master_Write((IMU_ADD << 1) | I2C_W);
-	I2C_Master_Write(PWR_MGMT_1);
-	I2C_Master_Write(0x01);
-	I2C_Master_Stop();
-	
-	I2C_Master_Start();
-	I2C_Master_Write((IMU_ADD << 1) | I2C_W);
-	I2C_Master_Write(CONFIG);
-	I2C_Master_Write(0x00);
-	I2C_Master_Stop();
-	
-	I2C_Master_Start();
-	I2C_Master_Write((IMU_ADD << 1) | I2C_W);
-	I2C_Master_Write(ACCEL_CONFIG);
-	I2C_Master_Write(0x08);			// 4g
-	I2C_Master_Stop();
-	
-	I2C_Master_Write((IMU_ADD << 1) | I2C_W);
-	I2C_Master_Write(GYRO_CONFIG);
-	I2C_Master_Write(0x08);			// 500 dps
-	I2C_Master_Stop();
-	
-	I2C_Master_Start();
-	I2C_Master_Write((IMU_ADD << 1) | I2C_W);
-	I2C_Master_Write(INT_ENABLE);
-	I2C_Master_Write(0x01);
-	I2C_Master_Stop();
-	
-	I2C_Master_Start();
-	I2C_Master_Write((IMU_ADD << 1) | I2C_W);
-	I2C_Master_Write(WHO_AM_I);
-	I2C_Master_Stop();
-	
-	I2C_Master_Start();
-	I2C_Master_Write((IMU_ADD << 1) | I2C_R);
-	I2C_Master_Read();
-	I2C_Master_Ack_Nack(1);
-	I2C_Master_Stop();
+    I2C_Master_Start();
+    I2C_Master_Write((IMU_ADD << 1) | I2C_W);
+    I2C_Master_Write(SMPLRT_DIV);
+    I2C_Master_Write(0x07);
+    I2C_Master_Stop();
+
+    I2C_Master_Start();
+    I2C_Master_Write((IMU_ADD << 1) | I2C_W);
+    I2C_Master_Write(PWR_MGMT_1);
+    I2C_Master_Write(0x01);
+    I2C_Master_Stop();
+
+    I2C_Master_Start();
+    I2C_Master_Write((IMU_ADD << 1) | I2C_W);
+    I2C_Master_Write(CONFIG);
+    I2C_Master_Write(0x00);
+    I2C_Master_Stop();
+
+    I2C_Master_Start();
+    I2C_Master_Write((IMU_ADD << 1) | I2C_W);
+    I2C_Master_Write(ACCEL_CONFIG);
+    I2C_Master_Write(0x08);			// 4g
+    I2C_Master_Stop();
+
+    I2C_Master_Write((IMU_ADD << 1) | I2C_W);
+    I2C_Master_Write(GYRO_CONFIG);
+    I2C_Master_Write(0x08);			// 500 dps
+    I2C_Master_Stop();
+
+    I2C_Master_Start();
+    I2C_Master_Write((IMU_ADD << 1) | I2C_W);
+    I2C_Master_Write(INT_ENABLE);
+    I2C_Master_Write(0x01);
+    I2C_Master_Stop();
+
+    I2C_Master_Start();
+    I2C_Master_Write((IMU_ADD << 1) | I2C_W);
+    I2C_Master_Write(WHO_AM_I);
+    I2C_Master_Stop();
+
+    I2C_Master_Start();
+    I2C_Master_Write((IMU_ADD << 1) | I2C_R);
+    I2C_Master_Read();
+    I2C_Master_Ack_Nack(1);
+    I2C_Master_Stop();
 }
 
 /* helper functions
@@ -445,14 +549,34 @@ float charToFloat(char val1, char val2, float weight) {
     return (float)((val1 << 8) | val2) * weight;
 }
 
-/* Interrupt handlers */
-void __ISR(_TIMER_3_VECTOR, IPL2SOFT) TMR3_IntHandler() {
-	LATBINV = _LATB_LATB11_MASK;
-	IFS0CLR = _IFS0_T3IF_MASK;
-	Bot_Peripheral();
-    Bot_Navigate();
+float unsignedCharToFloat(char val1, char val2, float weight) {
+    return (float)((unsigned int)((val1 << 8) | val2) * weight);
 }
 
+void rotationMatrix(float * x, float * y) {
+    float cos_rot = cos(bot.rotMu);
+    float sin_rot = sin(bot.rotMu);
+    x[0] += (y[0] * cos_rot - y[1] * sin_rot) * DT;
+    x[1] += (y[0] * sin_rot + y[1] * cos_rot) * DT;
+}
+
+/* Interrupt handlers */
+void __ISR(_TIMER_3_VECTOR, IPL2SOFT) TMR3_IntHandler() {
+    IFS0CLR = _IFS0_T3IF_MASK;
+    Bot_Update();
+}
+
+void __ISR(_TIMER_4_VECTOR, IPL2SOFT) TMR4_IntHandler() {
+    IFS0CLR = _IFS0_T4IF_MASK;
+    if (bot.count++ == 4) {
+	bot.count = 0;
+	T4CONCLR = _T4CON_ON_MASK;	
+	//bot.state &= ~DIR_MASK;
+	bot.state |= MOVE_MASK;
+    }
+}
+
+/*
 void __ISR(_EXTERNAL_0_VECTOR, IPL2SOFT) Ext0_IntHandler() {
 	IFS0CLR = _IFS0_INT0IF_MASK;
 	bot.fall |= 0x1;
@@ -472,3 +596,4 @@ void __ISR(_EXTERNAL_4_VECTOR, IPL2SOFT) Ext4_IntHandler() {
 	IFS0CLR = _IFS0_INT4IF_MASK;
 	bot.fall |= 0x8;
 }
+ * */
