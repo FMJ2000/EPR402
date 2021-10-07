@@ -57,17 +57,17 @@ OBJECTDIR=build/${CND_CONF}/${IMAGE_TYPE}
 DISTDIR=dist/${CND_CONF}/${IMAGE_TYPE}
 
 # Source Files Quoted if spaced
-SOURCEFILES_QUOTED_IF_SPACED=master.c
+SOURCEFILES_QUOTED_IF_SPACED=main.c bot.c periph.c
 
 # Object Files Quoted if spaced
-OBJECTFILES_QUOTED_IF_SPACED=${OBJECTDIR}/master.o
-POSSIBLE_DEPFILES=${OBJECTDIR}/master.o.d
+OBJECTFILES_QUOTED_IF_SPACED=${OBJECTDIR}/main.o ${OBJECTDIR}/bot.o ${OBJECTDIR}/periph.o
+POSSIBLE_DEPFILES=${OBJECTDIR}/main.o.d ${OBJECTDIR}/bot.o.d ${OBJECTDIR}/periph.o.d
 
 # Object Files
-OBJECTFILES=${OBJECTDIR}/master.o
+OBJECTFILES=${OBJECTDIR}/main.o ${OBJECTDIR}/bot.o ${OBJECTDIR}/periph.o
 
 # Source Files
-SOURCEFILES=master.c
+SOURCEFILES=main.c bot.c periph.c
 
 
 
@@ -107,18 +107,42 @@ endif
 # ------------------------------------------------------------------------------------
 # Rules for buildStep: compile
 ifeq ($(TYPE_IMAGE), DEBUG_RUN)
-${OBJECTDIR}/master.o: master.c  .generated_files/flags/default/2d6a88431d83f3a5bdcb00aed45f3ccae2299ea5 .generated_files/flags/default/dd3623c89e4677f90469d78ff507bf2f23022ec
+${OBJECTDIR}/main.o: main.c  .generated_files/flags/default/5ff9b777ce224ddbbf6739c31831707996d2a80e .generated_files/flags/default/dd3623c89e4677f90469d78ff507bf2f23022ec
 	@${MKDIR} "${OBJECTDIR}" 
-	@${RM} ${OBJECTDIR}/master.o.d 
-	@${RM} ${OBJECTDIR}/master.o 
-	${MP_CC}  $(MP_EXTRA_CC_PRE) -g -D__DEBUG -D__MPLAB_DEBUGGER_PK3=1  -fframe-base-loclist  -x c -c -mprocessor=$(MP_PROCESSOR_OPTION)  -fno-common -MP -MMD -MF "${OBJECTDIR}/master.o.d" -o ${OBJECTDIR}/master.o master.c    -DXPRJ_default=$(CND_CONF)  -legacy-libc  $(COMPARISON_BUILD)  -mdfp="${DFP_DIR}"  
+	@${RM} ${OBJECTDIR}/main.o.d 
+	@${RM} ${OBJECTDIR}/main.o 
+	${MP_CC}  $(MP_EXTRA_CC_PRE) -g -D__DEBUG -D__MPLAB_DEBUGGER_PK3=1  -fframe-base-loclist  -x c -c -mprocessor=$(MP_PROCESSOR_OPTION)  -fno-common -MP -MMD -MF "${OBJECTDIR}/main.o.d" -o ${OBJECTDIR}/main.o main.c    -DXPRJ_default=$(CND_CONF)  -legacy-libc  $(COMPARISON_BUILD)  -mdfp="${DFP_DIR}"  
+	
+${OBJECTDIR}/bot.o: bot.c  .generated_files/flags/default/4246df63c9e07fb96ba0961cb24309de9223bd0e .generated_files/flags/default/dd3623c89e4677f90469d78ff507bf2f23022ec
+	@${MKDIR} "${OBJECTDIR}" 
+	@${RM} ${OBJECTDIR}/bot.o.d 
+	@${RM} ${OBJECTDIR}/bot.o 
+	${MP_CC}  $(MP_EXTRA_CC_PRE) -g -D__DEBUG -D__MPLAB_DEBUGGER_PK3=1  -fframe-base-loclist  -x c -c -mprocessor=$(MP_PROCESSOR_OPTION)  -fno-common -MP -MMD -MF "${OBJECTDIR}/bot.o.d" -o ${OBJECTDIR}/bot.o bot.c    -DXPRJ_default=$(CND_CONF)  -legacy-libc  $(COMPARISON_BUILD)  -mdfp="${DFP_DIR}"  
+	
+${OBJECTDIR}/periph.o: periph.c  .generated_files/flags/default/6aeeb676e8150b0d9a8d3b6812042fa0bec3a179 .generated_files/flags/default/dd3623c89e4677f90469d78ff507bf2f23022ec
+	@${MKDIR} "${OBJECTDIR}" 
+	@${RM} ${OBJECTDIR}/periph.o.d 
+	@${RM} ${OBJECTDIR}/periph.o 
+	${MP_CC}  $(MP_EXTRA_CC_PRE) -g -D__DEBUG -D__MPLAB_DEBUGGER_PK3=1  -fframe-base-loclist  -x c -c -mprocessor=$(MP_PROCESSOR_OPTION)  -fno-common -MP -MMD -MF "${OBJECTDIR}/periph.o.d" -o ${OBJECTDIR}/periph.o periph.c    -DXPRJ_default=$(CND_CONF)  -legacy-libc  $(COMPARISON_BUILD)  -mdfp="${DFP_DIR}"  
 	
 else
-${OBJECTDIR}/master.o: master.c  .generated_files/flags/default/782e8bc363283490b0e9a153d6ac739917dd5759 .generated_files/flags/default/dd3623c89e4677f90469d78ff507bf2f23022ec
+${OBJECTDIR}/main.o: main.c  .generated_files/flags/default/c36c3a9d2150dc8730e24243b2b9977239b29f91 .generated_files/flags/default/dd3623c89e4677f90469d78ff507bf2f23022ec
 	@${MKDIR} "${OBJECTDIR}" 
-	@${RM} ${OBJECTDIR}/master.o.d 
-	@${RM} ${OBJECTDIR}/master.o 
-	${MP_CC}  $(MP_EXTRA_CC_PRE)  -g -x c -c -mprocessor=$(MP_PROCESSOR_OPTION)  -fno-common -MP -MMD -MF "${OBJECTDIR}/master.o.d" -o ${OBJECTDIR}/master.o master.c    -DXPRJ_default=$(CND_CONF)  -legacy-libc  $(COMPARISON_BUILD)  -mdfp="${DFP_DIR}"  
+	@${RM} ${OBJECTDIR}/main.o.d 
+	@${RM} ${OBJECTDIR}/main.o 
+	${MP_CC}  $(MP_EXTRA_CC_PRE)  -g -x c -c -mprocessor=$(MP_PROCESSOR_OPTION)  -fno-common -MP -MMD -MF "${OBJECTDIR}/main.o.d" -o ${OBJECTDIR}/main.o main.c    -DXPRJ_default=$(CND_CONF)  -legacy-libc  $(COMPARISON_BUILD)  -mdfp="${DFP_DIR}"  
+	
+${OBJECTDIR}/bot.o: bot.c  .generated_files/flags/default/3702dd968e66b79e18c4f4db366e19c6f314cce1 .generated_files/flags/default/dd3623c89e4677f90469d78ff507bf2f23022ec
+	@${MKDIR} "${OBJECTDIR}" 
+	@${RM} ${OBJECTDIR}/bot.o.d 
+	@${RM} ${OBJECTDIR}/bot.o 
+	${MP_CC}  $(MP_EXTRA_CC_PRE)  -g -x c -c -mprocessor=$(MP_PROCESSOR_OPTION)  -fno-common -MP -MMD -MF "${OBJECTDIR}/bot.o.d" -o ${OBJECTDIR}/bot.o bot.c    -DXPRJ_default=$(CND_CONF)  -legacy-libc  $(COMPARISON_BUILD)  -mdfp="${DFP_DIR}"  
+	
+${OBJECTDIR}/periph.o: periph.c  .generated_files/flags/default/e861b133c36c6582e2b4910aa0c50136b560aed4 .generated_files/flags/default/dd3623c89e4677f90469d78ff507bf2f23022ec
+	@${MKDIR} "${OBJECTDIR}" 
+	@${RM} ${OBJECTDIR}/periph.o.d 
+	@${RM} ${OBJECTDIR}/periph.o 
+	${MP_CC}  $(MP_EXTRA_CC_PRE)  -g -x c -c -mprocessor=$(MP_PROCESSOR_OPTION)  -fno-common -MP -MMD -MF "${OBJECTDIR}/periph.o.d" -o ${OBJECTDIR}/periph.o periph.c    -DXPRJ_default=$(CND_CONF)  -legacy-libc  $(COMPARISON_BUILD)  -mdfp="${DFP_DIR}"  
 	
 endif
 
