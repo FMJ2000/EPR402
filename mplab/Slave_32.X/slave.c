@@ -42,7 +42,7 @@
 #pragma config CP = OFF                 // Code Protect (Protection Disabled)
 
 #include <xc.h>
-#include <proc/p32mx270f256b.h>
+#include <proc/p32mx220f032b.h>
 #include <sys/attribs.h>
 #include <stdlib.h>
 #include <math.h>
@@ -137,7 +137,6 @@ void Init() {
     ANSELB = 0x0;
     TRISB = 0x89C;
     LATB = 0x0;
-    LATBSET = _LATB_LATB8_MASK;
 
     T2CKR = 0x2;			// RB4 = T2CK
     T3CKR = 0x3;			// RB11 = T3CK

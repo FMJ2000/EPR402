@@ -60,7 +60,7 @@ class Bot:
 				d_pos[2] = -(v[0] * self.dt / (WHEEL_RADIUS + r))
 			elif v[0] < v[1]:
 				# turning left
-				r = v[0] / (v[0] - v[1]) * WHEEL_RADIUS
+				r = v[0] / (v[1] - v[0]) * WHEEL_RADIUS
 				d_pos[2] = v[1] * self.dt / (WHEEL_RADIUS + r)
 			d = 2 * (WHEEL_RADIUS + r) * np.sin(abs(d_pos[2]) / 2)
 			#print(f'd": {(v[0] * self.dt):.3f} d: {d:.3f}, r: {r:.3f}, theta: {d_pos[2]:.3f}')
