@@ -16,8 +16,8 @@
 #define UART_BAUD 38400l
 #define I2C_W 0x0
 #define I2C_R 0x1
-#define FREQ 4.0
-#define DT 1 / 4.0                     // 1 / (1000000 / 2^16)
+#define FREQ 15.0
+#define DT 1.0 / FREQ                    
 
 /* MPU registers */
 #define XG_OFFS_TC         0x00
@@ -138,33 +138,65 @@
 #define G_CONSTANT 9.80665
 #define TEMP_OFFSET 25
 #define IMU_RES 32768.0
+#define BIAS_MAX 1000
+#define IDLE 0
+#define NAVIGATE 1
 
 #define PWM_T 0xFFF
-#define PWM_H 0x8FF                     // normal full speed
-#define VEL_MAX 0.5                     // maximum speed (m/s) if duty 100%
+#define PWM_H 0x7FF                     // normal full speed
+#define VEL_MAX 0.55                     // maximum speed (m/s) if duty 100%
 #define WHEEL_DIAMETER 0.22
 #define WHEEL_RADIUS 0.03
 #define ALPHA 0.1
-#define BETA M_PI / 2.0
+#define BETA M_PI
 #define GAMMA 0.1   
+#define K_EST 0.8
+#define K_TURN 5.0
 #define ERROR_MAX 0.7854                // 45 degrees
 #define MIN_DIST 0.05
 #define MIN_PWM 0.1
 #define Q_VAL 0.5
 #define R_VAL 0.5
+#define INPUTQ_SIZE 50
+
+#define US_TRIG_T 640                   // ultrasonic trigger
+#define US_SENSORS 3
+#define SOUND_SPEED 1.65e-4              // TMR2*SOUND_SPEED for distance
+#define MAP_SIZE 60.0
+#define MAP_RES 3.0
+#define MAP_UNITS 20
+#define DEFAULT_VAL 0x07
 
 /* bot data structure */
-typedef struct Bot {
-    float pos[3];
-    float sigma[3][3];
-    float inputPos[2];
+struct Map {
+    float pos[2];
+    char grid[MAP_UNITS][MAP_UNITS];
+    struct Map ** neighbors;
+};
+
+struct Bot {
+    /* positioning */
+    float pos[3];               // x, y, rot
+    float inputPosQueue[INPUTQ_SIZE][2];
+    unsigned int execIndex;
+    unsigned int addIndex;
     float vel[2];
     float duty[2];
-    float gyro;
-    float acc[2];
-    const float Q[3][3];
-    const float R[3][3];
+    float imuData[3];           // accX, accY, gyroZ
+    float bias[3];
+    unsigned int numBias;
+    
+    /* mapping */
+    char usState;
+    float distances[3];
+    struct Map * currentMap;
+    unsigned int numMaps;
+    float battery;
+    
+    /* auxiliary */
     char count;
+    char state;
+    int portCN;
     unsigned char buf[100];
     
     /* temporary */
@@ -173,14 +205,10 @@ typedef struct Bot {
     float maxSpeed;
     float maxTurn;
     float rotSign;
-} Bot;
+};
 
 /* static global variables/constants */
-static Bot bot = { 
-    .sigma = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}},
-    .Q = {{Q_VAL, 0, 0}, {0, Q_VAL, 0}, {0, 0, Q_VAL}},
-    .R = {{R_VAL, 0, 0}, {0, R_VAL, 0}, {0, 0, R_VAL}}
-};
+static struct Bot bot = { .state=0 };
 
 /* peripheral defintions */
 void Init();
@@ -200,12 +228,20 @@ int I2C_Read(char periphAdd, char regAdd, char * data, int len);
 
 /* bot functions */
 void Bot_Pos_Update();
+void Bot_Map_Update();
+void Bot_Trigger_Ultrasonic();
 void Bot_Controller();
+void Bot_Add_Instruction(float x, float y);
 void Bot_Display_Status();
 
+/* map functions */
+struct Map * Map_Initialize(float x, float y, char fillVal);
+void Map_Destroy(struct Map * map);
+
+
 /* helper functions */
-void matrix_plus(float ** result, float ** mat1, float ** mat2, int len);
-void matrix_mul(float ** result, float ** mat1, float ** mat2, int len);
-void matrix_inv(float ** result, float ** mat);
+void matrix_plus(int len, float result[][len], float mat1[][len], float mat2[][len]);
+void matrix_mul( int nRows,  int nCols, int nAdd, float result[][nCols], float mat1[][nAdd], float mat2[][nCols]);
+void matrix_inv(float result[3][3], float mat[3][3]);
 
 #endif

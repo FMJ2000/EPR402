@@ -41,20 +41,16 @@
 #pragma config BWP = OFF                // Boot Flash Write Protect bit (Protection Disabled)
 #pragma config CP = OFF                 // Code Protect (Protection Disabled)
 
+#include <math.h>
+
 #include "master.h"
 
 int main() {
     long delay = 640000l;
     while (delay--);
     
-    float mat1[3][3] = {{1, 2, 3}, {4, 5, 6}, {7, 8, 9}};
-    float mat2[3][3] = {{8, 7, 8}, {6, 5, 6}, {4, 3, 4}};
-    float result[3][3];
-    matrix_mul((float **)result, (float **)mat1, (float **)mat2, 3);
-    matrix_inv((float **)result, (float **)mat1);
-    
-    bot.inputPos[0] = 1.5;
-    bot.inputPos[1] = 0.0;
+    bot.currentMap = Map_Initialize(-MAP_SIZE / 2, -MAP_SIZE / 2, DEFAULT_VAL);
+    Bot_Add_Instruction(6.0, 0.0);
     
     Init();
     UART_Write_String("Peripherals Initialized\r\n", 26);
@@ -70,185 +66,311 @@ int main() {
 void Bot_Pos_Update() {
     /* Get IMU sensor data */
     uint8_t data[6];
-    I2C_Read(IMU_ADD, GYRO_ZOUT_H, data, 2);
-    I2C_Read(IMU_ADD, ACCEL_XOUT_H, &data[2], 4);
+    int16_t values[3];
+    I2C_Read(IMU_ADD, ACCEL_XOUT_H, data, 4);
+    I2C_Read(IMU_ADD, GYRO_ZOUT_H, &data[4], 2);
     
-    int16_t val = (data[0] << 8) | data[1];
-    bot.gyro = (float)val * GYRO_SCALE / IMU_RES;
-    for (int i = 1; i < 3; i++) {
-	val = (data[2*i] << 8) | data[2*i+1];
-	bot.acc[i-1] = (float)val * ACC_SCALE / IMU_RES;
-    }
+    for (int i = 0; i < 3; i++) values[i] = (data[2*i] << 8) | data[2*i+1];
+    bot.imuData[0] = (float)values[1] * ACC_SCALE / IMU_RES;
+    bot.imuData[1] = (float)values[0] * ACC_SCALE / IMU_RES;
+    bot.imuData[2] = (float)values[2] * GYRO_SCALE * M_PI / (IMU_RES * 180.0);
     
-    /* estimate next position with current trajectory */
-    float vel[2] = { bot.duty[0] * VEL_MAX, bot.duty[1] * VEL_MAX };
-    float dPos[3] = {0};
-    float ePos[3], eSigma[3][3];
-    
-    memcpy(ePos, bot.pos, sizeof(float) * 3);
-    matrix_plus((float **)eSigma, (float **)bot.sigma, (float **)bot.Q, 3);
-    
-    if (vel[0] == vel[1]) {
-	// bot moving straight ahead
-	dPos[0] = vel[0] * DT * cos(bot.pos[2]);
-	dPos[1] = vel[1] * DT * sin(-bot.pos[2]);
-    } else {
-	float radius = 0.0;
-	if (vel[0] > vel[1]) {
-	    // turning right
-	    radius = vel[1] / (vel[0] - vel[1]) * WHEEL_RADIUS;
-	    dPos[2] = -(vel[0] * DT / (WHEEL_RADIUS + radius));
-	} else {
-	    // turning left
-	    radius = vel[0] / (vel[1] - vel[0]) * WHEEL_RADIUS;
-	    dPos[2] = vel[1] * DT / (WHEEL_RADIUS + radius);
+    switch (bot.state) {
+	case IDLE: {
+	    /* IDLE state: estimate bias */
+	    if (bot.numBias++ < BIAS_MAX) {
+		for (int i = 0; i < 3; i++) bot.bias[i] += bot.imuData[i];
+	    } else {
+		bot.numBias = 0;
+		for (int i = 0; i < 3; i++) bot.bias[i] = 0.0;
+	    }
+	    break;
 	}
-	float distance = 2 * (WHEEL_RADIUS + radius) * sin(fabs(dPos[2]) / 2.0);
-	ePos[2] += dPos[2];
-	dPos[0] = distance * cos(ePos[2]);
-	dPos[1] = distance * sin(-ePos[2]);
-    }
-    ePos[0] += dPos[0];
-    ePos[1] += dPos[1];
+	
+	case NAVIGATE: {
+	    /* NAVIGATE state: estimate next position with current trajectory */
+	    float vel[2] = { bot.duty[0] * VEL_MAX, bot.duty[1] * VEL_MAX };
+	    float dPos[3] = {0};
+	    float ePos[3];//, eSigma[3][3];
+
+	    memcpy(ePos, bot.pos, sizeof(float) * 3);
+	    //matrix_plus(3, eSigma, bot.sigma, bot.Q);
+
+	    if (vel[0] == vel[1]) {
+		// bot moving straight ahead
+		dPos[0] = vel[0] * DT * cos(bot.pos[2]);
+		dPos[1] = vel[1] * DT * sin(-bot.pos[2]);
+	    } else {
+		float radius = 0.0;
+		if (vel[0] > vel[1]) {
+		    // turning right
+		    radius = vel[1] / (vel[0] - vel[1]) * WHEEL_RADIUS;
+		    dPos[2] = (vel[0] * DT / (WHEEL_RADIUS + radius));
+		} else {
+		    // turning left
+		    radius = vel[0] / (vel[1] - vel[0]) * WHEEL_RADIUS;
+		    dPos[2] = -(vel[1] * DT / (WHEEL_RADIUS + radius));
+		}
+		float distance = 2 * (WHEEL_RADIUS + radius) * sin(fabs(dPos[2]) / 2.0);
+		ePos[2] += dPos[2];
+		dPos[0] = distance * cos(ePos[2]);
+		dPos[1] = distance * sin(-ePos[2]);
+	    }
+	    ePos[0] += dPos[0];
+	    ePos[1] += dPos[1];
 	    
-    /* estimate sensor measurements */
-    vel[0] = dPos[0] / DT;
-    vel[1] = dPos[1] / DT;
-    float eAcc[2] = { (vel[0] - bot.vel[0]) / DT, (vel[1] - bot.vel[1]) / DT };
-    float eGyro = dPos[2] / 2.0;
-    memcpy(bot.vel, vel, sizeof(float) * 2);
-    
-    /* fuse estimation with measurement */
-    float K[3][3], inv_K[3][3];
-    matrix_plus((float **)inv_K, (float **)eSigma, (float **)bot.R, 3);
-    
-    
-    memcpy(bot.pos, ePos, sizeof(float) * 3);
+	    /* estimate roation with gyroscope */
+	    float mPos[3] = {0.0, 0.0, bot.pos[2] + bot.imuData[2] * DT};
+	    float dc = (fabs(bot.duty[0]) + fabs(bot.duty[1])) / 2.0;
+	    
+	    /* estimate sensor measurements */
+	    vel[0] = dPos[0] / DT;
+	    vel[1] = dPos[1] / DT;
+	    //float eImuData[3] = { (vel[0] - bot.vel[0]) / DT, (vel[1] - bot.vel[1]) / DT, dPos[2] / 2.0 };
+	    memcpy(bot.vel, vel, sizeof(float) * 2);
+
+	    /* fuse estimation with measurement 
+	    float K[3][3], inv_K[3][3], mMes[3][1];
+	    float dMes[3][1] = {
+		{bot.imuData[0] - eImuData[0] - bot.bias[0]},
+		{bot.imuData[1] - eImuData[1] - bot.bias[1]},
+		{bot.imuData[2] - eImuData[2] - bot.bias[2]}
+	    };
+	    matrix_plus(3, K, eSigma, bot.R);
+	    matrix_inv(inv_K, K);
+	    matrix_mul(3, 3, 3, K, eSigma, inv_K);
+	    matrix_mul(3, 1, 3, mMes, K, dMes); */
+
+	    bot.pos[0] = ePos[0];// + mMes[0][0];
+	    bot.pos[1] = ePos[1];// + mMes[0][1];
+	    bot.pos[2] = (1 - dc * K_EST) * ePos[2] + dc * K_EST * mPos[2];
+	    break;
+	}
+    };
 }
 
-void Bot_Controller() {
-    // obtain error angle and distance
-    bot.theta = 0.0;
-    if (bot.inputPos[0] == bot.pos[0]) {
-	bot.theta = (bot.pos[1] - bot.inputPos[1] < 0.0) ? -M_PI / 2 : M_PI / 2;
+void Bot_Trigger_Ultrasonic() { 
+    bot.usState = (bot.usState + 1) % US_SENSORS;
+    TMR2 = 0x0;
+    /* enable HC-SR04 trigger on current state for 10us */
+    long delay = SYSCLK / (2 * US_TRIG_T);
+    switch (bot.usState) {
+	case 0:
+	    LATBSET = _LATB_LATB9_MASK;
+	    while (delay--);
+	    LATBCLR = _LATB_LATB9_MASK;
+	    break;
+	case 1: 
+	    LATBSET = _LATB_LATB10_MASK;
+	    while (delay--);
+	    LATBCLR = _LATB_LATB10_MASK;
+	    break;
+	case 2:
+	    LATBSET = _LATB_LATB11_MASK;
+	    while (delay--);
+	    LATBCLR = _LATB_LATB11_MASK;
+	    break;
     }
-    else bot.theta = atan2f(-(bot.inputPos[1] - bot.pos[1]), (bot.inputPos[0] - bot.pos[0]));
-    if (bot.inputPos[0] - bot.pos[0] < 0) bot.theta = M_PI + bot.theta;
-    bot.distance = sqrtf(powf(bot.inputPos[0] - bot.pos[0], 2) + powf(bot.inputPos[1] - bot.pos[1], 2));
+}
+
+void Bot_Map_Update() {
     
-    if (bot.distance > MIN_DIST) {
-	float ePos[3] = {0};
-	ePos[2] = bot.theta - bot.pos[2];
-	bot.rotSign = (ePos[2] < 0.0) ? -1.0 : 1.0;
-	bot.maxTurn = fabs(ePos[2]) / (3*(BETA + fabs(ePos[2])));
-	float newDuty[2] = {0};
+}
 
-	if (fabs(ePos[2]) > ERROR_MAX) {
-	    newDuty[0] = bot.rotSign * -bot.maxTurn;
-	    newDuty[1] = bot.rotSign * bot.maxTurn;
-	} else {
-	    bot.maxSpeed = bot.distance / (ALPHA + bot.distance);
-	    newDuty[0] = bot.maxSpeed / 2.0 + bot.rotSign * -bot.maxTurn;
-	    newDuty[1] = bot.maxSpeed / 2.0 + bot.rotSign * bot.maxTurn;
+void Bot_Controller() { 
+    float convDuty[2] = {0};		// convert duty cycle to correct value
+    
+    switch (bot.state) {
+	case IDLE: {
+	    /* IDLE state: do not move */
+	    for (int i = 0; i < 2; i++) {
+		bot.duty[i] = 0.0;
+		convDuty[i] = 0.0;
+	    }
+	    break;
 	}
+	
+	case NAVIGATE: {
+	    /* NAVIGATE state: determine duty cycle */
+	    /* navigate: obtain error angle and distance */
+	    float viewVec[2] = { bot.pos[0] + cos(bot.pos[2]), bot.pos[1] - sin(bot.pos[2]) };
+	    float inputVec[2] = { bot.inputPosQueue[bot.execIndex][0] - bot.pos[0], bot.inputPosQueue[bot.execIndex][1] - bot.pos[1] };
+	    bot.theta = acos((viewVec[0] * inputVec[0] + viewVec[1] * inputVec[1]) / (sqrt(viewVec[0]*viewVec[0] + viewVec[1]*viewVec[1]) * sqrt(inputVec[0]*inputVec[0] + inputVec[1]*inputVec[1])));
+	    if (isnanf(bot.theta)) bot.theta = 0.0;
+	    bot.distance = sqrtf(powf(bot.inputPosQueue[bot.execIndex][0] - bot.pos[0], 2) + powf(bot.inputPosQueue[bot.execIndex][1] - bot.pos[1], 2));
+    
+	    if (bot.distance > MIN_DIST && bot.distances[0] > MIN_DIST && bot.distances[1] > MIN_DIST && bot.distances[2] > MIN_DIST) {
+		float ePos[3] = {0};
+		ePos[2] = bot.theta - bot.pos[2];
+		bot.rotSign = (ePos[2] < 0.0) ? -1.0 : 1.0;
+		bot.maxTurn = fabs(ePos[2]) / (BETA + fabs(ePos[2]));
+		float newDuty[2] = {0};
 
-	for (int i = 0; i < 2; i++) {
-	    /* set new duty cycles */
-	    if (newDuty[i] < bot.duty[i] - GAMMA) bot.duty[i] -= GAMMA;
-	    else if (newDuty[i] > bot.duty[i] + GAMMA) bot.duty[i] += GAMMA;
-	    //else if (fabs(newDuty[i]) < MIN_PWM) bot.duty[i] = 0.0;
-	    else bot.duty[i] = newDuty[i];
+		if (fabs(ePos[2]) > ERROR_MAX) {
+		    newDuty[0] = bot.rotSign * bot.maxTurn / K_TURN;
+		    newDuty[1] = bot.rotSign * -bot.maxTurn / K_TURN;
+		} else {
+		    bot.maxSpeed = bot.distance / (ALPHA + bot.distance);
+		    newDuty[0] = bot.maxSpeed / 2.0 + bot.rotSign * bot.maxTurn;
+		    newDuty[1] = bot.maxSpeed / 2.0 + bot.rotSign * -bot.maxTurn;
+		}
+
+		for (int i = 0; i < 2; i++) {
+		    /* set new duty cycles */
+		    if (newDuty[i] < bot.duty[i] - GAMMA) bot.duty[i] -= GAMMA;
+		    else if (newDuty[i] > bot.duty[i] + GAMMA) bot.duty[i] += GAMMA;
+		    //else if (fabs(newDuty[i]) < MIN_PWM) bot.duty[i] = 0.0;
+		    else bot.duty[i] = newDuty[i];
+		}
+
+
+		/* negative duty cycles should reverse rotation */
+		if (bot.duty[0] > 0) {
+		    LATACLR = _LATA_LATA3_MASK;
+		    convDuty[0] = bot.duty[0];
+		} else {
+		    LATASET = _LATA_LATA3_MASK;
+		    convDuty[0] = 1 + bot.duty[0];
+		}
+		if (bot.duty[1] > 0) {
+		    LATBCLR = _LATB_LATB4_MASK;
+		    convDuty[1] = bot.duty[1];
+		} else {
+		    LATBSET = _LATB_LATB4_MASK;
+		    convDuty[1] = 1 + bot.duty[1];
+		}
+	    } else {
+		/* reached desired location */
+		for (int i = 0; i < 2; i++) {
+		    bot.duty[i] = 0.0;
+		    convDuty[i] = 0.0;
+		}
+		//bot.state = IDLE;
+	    }
+	    break;
 	}
+    };
+    
+    OC4RS = (int)(convDuty[0] * PWM_H);
+    OC5RS = (int)(convDuty[1] * PWM_H);
+}
 
-    	
-	/* negative duty cycles should reverse rotation */
-	if (bot.duty[0] > 0) LATACLR = _LATA_LATA3_MASK;
-	else LATASET = _LATA_LATA3_MASK;
-	if (bot.duty[1] > 0) LATBCLR = _LATB_LATB4_MASK;
-	else LATBSET = _LATB_LATB4_MASK;
-    } else {
-	bot.duty[0] = 0.0;
-	bot.duty[1] = 0.0;
+void Bot_Add_Instruction(float x, float y) {
+    if ((bot.execIndex - 1) % INPUTQ_SIZE != bot.addIndex) {
+	bot.inputPosQueue[bot.addIndex][0] = x;
+	bot.inputPosQueue[bot.addIndex][1] = y;
+	bot.addIndex = (bot.addIndex + 1) % INPUTQ_SIZE;
     }
-    
-    OC4RS = (int)(fabs(bot.duty[0]) * PWM_H);
-    OC5RS = (int)(fabs(bot.duty[1]) * PWM_H);
 }
 
 void Bot_Display_Status() {
-    snprintf(bot.buf, 100, "\33[2J\33[HBot status:\r\n");
+    snprintf(bot.buf, 100, "\33[2J\33[HBot status (%d)\r\n", bot.state);
     UART_Write_String(bot.buf, strlen(bot.buf));
     snprintf(bot.buf, 100, "pos: (%.2f, %.2f, %.2f)\r\n", bot.pos[0], bot.pos[1], bot.pos[2] * 180.0 / M_PI);
     UART_Write_String(bot.buf, strlen(bot.buf));
-    snprintf(bot.buf, 100, "input: (%.2f, %.2f)\r\n", bot.inputPos[0], bot.inputPos[1]);
+    snprintf(bot.buf, 100, "vel: (%.2f, %.2f)\r\n", bot.vel[0], bot.vel[1]);
+    UART_Write_String(bot.buf, strlen(bot.buf));
+    snprintf(bot.buf, 100, "input: (%.2f, %.2f)\r\n", bot.inputPosQueue[bot.execIndex][0], bot.inputPosQueue[bot.execIndex][1]);
     UART_Write_String(bot.buf, strlen(bot.buf));
     snprintf(bot.buf, 100, "duty: (%.2f, %.2f)\r\n", bot.duty[0], bot.duty[1]);
     UART_Write_String(bot.buf, strlen(bot.buf));    
-    snprintf(bot.buf, 100, "gyro: (%.2f), acc: (%.2f, %.2f)\r\n", bot.gyro, bot.acc[0], bot.acc[1]);
+    snprintf(bot.buf, 100, "acc: (%.2f, %.2f), gyro: (%.2f), bias: (%.2f, %.2f, %.2f)\r\n", bot.imuData[0], bot.imuData[1], bot.imuData[2], bot.bias[0], bot.bias[1], bot.bias[2]);
+    UART_Write_String(bot.buf, strlen(bot.buf));
+    snprintf(bot.buf, 100, "dist: (%.2f, %.2f, %.2f)\r\n", bot.distances[0], bot.distances[1], bot.distances[2]);
+    UART_Write_String(bot.buf, strlen(bot.buf));
+    snprintf(bot.buf, 100, "numMaps: %d, current: (%.2f, %.2f)\r\n", bot.numMaps, bot.currentMap->pos[0], bot.currentMap->pos[1]);
     UART_Write_String(bot.buf, strlen(bot.buf));
     snprintf(bot.buf, 100, "theta: %.2f, distance: %.2f, maxTurn: %.2f, maxSpeed: %.2f, rotSign: %.2f\r\n", bot.theta * 180.0 / M_PI, bot.distance, bot.maxTurn, bot.maxSpeed, bot.rotSign);
     UART_Write_String(bot.buf, strlen(bot.buf));
 }
 
-/* Interrupt handlers */
-void __ISR(_TIMER_3_VECTOR, IPL2SOFT) TMR3_IntHandler() {
-    IFS0CLR = _IFS0_T3IF_MASK;
+/* map functions */
+struct Map * Map_Initialize(float x, float y, char fillVal) {
+    struct Map * map = malloc(sizeof(struct Map));
+    map->pos[0] = x;
+    map->pos[1] = y;
+    for (int i = 0; i < MAP_UNITS; i++)
+	for (int j = 0; j < MAP_UNITS; j++)
+	    map->grid[i][j] = fillVal;
+    map->neighbors = malloc(sizeof(struct Map*) * 8);
+    bot.numMaps++;
+    return map;
+}
+
+void Map_Destroy(struct Map * map) {
+    if (map != NULL) {
+	free(map->neighbors);
+	free(map);
+	map = NULL;
+    }
+    bot.numMaps--;
+}
+
+/* Interrupt functions */
+
+/* Ultrasonic echo timer */
+void __ISR(_TIMER_2_VECTOR, IPL2SOFT) TMR2_IntHandler() {
+    IFS0CLR = _IFS0_T2IF_MASK;
+    bot.distances[bot.usState] = (float)TMR2 * SOUND_SPEED;
+}
+
+/* Sample timer */
+void __ISR(_TIMER_4_VECTOR, IPL2SOFT) TMR4_IntHandler() {
+    IFS0CLR = _IFS0_T4IF_MASK;
+    
     Bot_Pos_Update();  
+    Bot_Trigger_Ultrasonic();
     Bot_Controller();
-    Bot_Display_Status();
+    
+    if (bot.count++ == 5) {
+	Bot_Display_Status();
+	bot.count = 0;
+    }
 }
 
-/* Helper function */
-void matrix_plus(float ** result, float ** mat1, float ** mat2, int len) {
-    for (int i = 0; i < len; i++)
-	for (int j = 0; j < len; j++)
-	    result[i][j] = mat1[i][j] + mat2[i][j];
+void __ISR(_TIMER_5_VECTOR, IPL2SOFT) TMR5_IntHandler() {
+    IFS0CLR = _IFS0_T5IF_MASK;
 }
 
-void matrix_mul(float ** result, float ** mat1, float ** mat2, int len) {
-    for (int i = 0; i < len; i++)
-	for (int j = 0; j < len; j++) {
-	    result[i][j] = 0.0;
-	    for (int k = 0; k < len; k++) 
-		result[i][j] += mat1[i][k] * mat2[k][j];
-	}    
+/* Battery sampler */
+void __ISR(_ADC_VECTOR, IPL2SOFT) ADC_IntHandler() {
+    if (IFS0bits.AD1IF) {
+	IFS0CLR = _IFS0_AD1IF_MASK;
+	bot.battery = (ADC1BUF0 >> 8) & 0xFF;
+    }
 }
 
-/* inverse of 3x3 matrix */
-void matrix_inv(float ** result, float ** mat) {
-    // calculate matrix of minors
-    float minors[3][3], detMat[2][2];
-    for (int i = 0; i < 3; i++) {
-	for (int j = 0; j < 3; j++) {
-	    // get determinant
-	    int offsetK = 0;
-	    for (int k = 0; k < 2; k++) {
-		int offsetL = 0;
-		for (int l = 0; l < 2; l++) {
-		    if (k == i) offsetK = 1;
-		    if (l == j) offsetL = 1;
-		    detMat[k][l] = mat[i + offsetK][j + offsetL];
-		}
+/* Fall sensor */
+void __ISR(_EXTERNAL_3_VECTOR, IPL2SOFT) Ext3_IntHandler() {
+    IFS0CLR = _IFS0_INT3IF_MASK;
+}
+
+/* User */
+void __ISR(_CHANGE_NOTICE_VECTOR, IPL2SOFT) CNB_IntHandler() {
+    if ((bot.portCN & 0x20) && !(PORTB & 0x20)) {
+	/* button press occured */
+	bot.state ^= 1;
+	
+	switch (bot.state) {
+	    case IDLE: {
+		bot.numBias = 0;
+		for (int i = 0; i < 0; i++) bot.bias[i] = 0;
+		break;
 	    }
-	    minors[i][j] = detMat[0][0] * detMat[1][1] - detMat[0][1] * detMat[1][0];
+	    
+	    case NAVIGATE: {
+		bot.bias[0] /= bot.numBias;
+		bot.bias[1] /= bot.numBias;
+		bot.bias[2] *= M_PI / (180.0 * bot.numBias);
+		break;
+	    }
 	}
+	
     }
-    
-    float det = mat[0][0] * minors[0][0] + mat[0][1] * minors[0][1] + mat[0][2] * minors[0][2];
-    
-    // cofactors and adjoint
-    for (int i = 0; i < 3; i++) {
-	for (int j = 0; j < 3; j++) {
-	    if ((i + j) % 2 != 0) minors[i][j] *= -1;
-	}
-    }
-    
-    for (int i = 0; i < 3; i++) {
-	for (int j = 0; j < 3; j++) {
-	    result[i][j] = minors[j][i] / det;
-	}
-    }
+    bot.portCN = PORTB;
+    IFS1CLR = _IFS1_CNBIF_MASK;
 }
+
 
 /* Peripheral functions*/
 void Init() {
@@ -256,67 +378,85 @@ void Init() {
     srand(PORTA);
     
     /* Ports */
-    ANSELA = 0x0;
-    TRISA = 0x0;
+    ANSELA = 0x1;
+    TRISA = 0x1;
     LATA = 0x0;
-    LATASET = _LATA_LATA0_MASK;
+    LATASET = _LATA_LATA1_MASK;
 
     ANSELB = 0x0;
-    TRISB = 0x380;
+    TRISB = 0x1A0;
     LATB = 0xC;
     LATBSET = _LATB_LATB10_MASK;
 
+    T2CKR = 0x4;		// RB7 = T2CK
     U1RXR = 0x3;		// RB13 = RX
     RPA2R = 0x5;		// RA2 = OC4
     RPA4R = 0x6;		// RA4 = OC5
     RPB15R = 0x1;		// RB15 = TX
-    INT1R = 0x4;		// RB9 = INT1
     INT3R = 0x4;		// RB8 = INT3
-    INT4R = 0x0;		// RA0 = INT4
+    CNCONB = 0x8000;
+    CNENB = 0x20;		// CNB5 
+    bot.portCN = PORTB;
     
     /* Interrupts */
     __builtin_disable_interrupts();
     INTCONSET = _INTCON_MVEC_MASK;
-    IPC0 = 0xA000000;		// INT0
-    IPC1 = 0xA000000;		// INT1
+    IPC2 = 0xA;			// TMR2
     IPC3 = 0xA00000A;		// INT3, TMR3
-    IPC4 = 0xA00000A;		// INT4, TMR4
+    IPC4 = 0xA;			// TMR4
+    IPC5 = 0xA00000A;		// TMR5, ADC1
+    IPC8 = 0xA0000;			// CN
     IFS0 = 0x0;
     IFS1 = 0x0;
-    IEC0 = 0x8C6108;       // INT0, INT1, INT2, TMR3, INT3, TMR4, INT4
+    IEC0 = 0x110C0200;		// TMR2, INT3, TMR4, TMR5, ADC1
+    IEC1 = 0x4000;		// CNB
     __builtin_enable_interrupts();
     
-    /* Timers + PWM */
+    /* Ultrasonic */
     TMR2 = 0x0;
-    PR2 = PWM_T;
+    PR2 = 0xFFFF;           // f = 15 Hz
+    T2CON = 0x80D0;         // gated time, 1:32 prescaler, TMR2 f = 1 MHz
+    
+    /* PWM */
+    TMR3 = 0x0;
+    PR3 = PWM_T;
     OC4R = 0x0;
     OC4RS = 0x0;
-    OC4CON = 0x6;		// PWM mode without fault protection
+    OC4CON = 0xE;		// PWM mode without fault protection, timer 3
     OC5R = 0x0;
     OC5RS = 0x0;
-    OC5CON = 0x6;
-    T2CON = 0x8060;		// 1:64 prescaler = 500 kHz
+    OC5CON = 0xE;
+    T3CON = 0x8060;		// 1:64 prescaler = 500 kHz
     OC4CONSET = _OC4CON_ON_MASK;
     OC5CONSET = _OC5CON_ON_MASK;
     
     /* Sampling timer */
-    TMR3 = 0x0;
-    PR3 = 0xFFFF;		// f = 15 Hz
-    T3CON = 0x8060;		// 1:32 prescaler = 1 MHz (reset to 0x8050)
+    TMR4 = 0x0;
+    PR4 = 0xFFFF;		// f = 15 Hz
+    T4CON = 0x8050;		// 1:32 prescaler = 1 MHz (reset to 0x8050)
     
     /* Long counter */
-    TMR4 = 0x0;
-    PR4 = 0xFFFF;		// 2 Hz
-    T4CON = 0x70;		// 1:256 prescaler = 125 kHz
+    TMR5 = 0x0;
+    PR5 = 0xFFFF;		// 2 Hz
+    T5CON = 0x70;		// 1:256 prescaler = 125 kHz    
     
     /* I2C */
     I2C2BRG = (int)(PBCLK / (2 * I2C_BAUD) - 2);
     I2C2CON = _I2C2CON_ON_MASK;
     
+     /* ADC */
+    AD1CON1 = 0x2E0;			// fractional output, manual sampling
+    AD1CON2 = 0x0;				// no scan, single conversion per interrupt
+    AD1CON3 = 0xF03;			// 15 Tad sample, 250ns conversion
+    AD1CHS = 0x0;				// AN0 - Vrefl
+    AD1CSSL = 0x0;				// no inputs scanned
+    AD1CON1SET = _AD1CON1_ADON_MASK;
+    AD1CON1SET = _AD1CON1_SAMP_MASK;
+    
     /* UART */
     U1MODE = 0x0;
     U1STA = 0x0;
-    U1BRG = 51;//(int)(PBCLK / (16 * UART_BAUD) - 1);
+    U1BRG = (int)(PBCLK / (16 * UART_BAUD) - 1);
     U1STASET = (_U1STA_UTXISEL0_MASK | _U1STA_URXEN_MASK | _U1STA_UTXEN_MASK);
     U1MODESET = _U1MODE_ON_MASK;
 }
@@ -429,3 +569,64 @@ char IMU_Init() {
     
     return whoami;
 }
+
+
+/* Helper functions /
+void matrix_plus(int len, float result[][len], float mat1[][len], float mat2[][len]) {
+    for (int i = 0; i < len; i++) {
+	for (int j = 0; j < len; j++) {
+	    result[i][j] = mat1[i][j] + mat2[i][j];
+	}
+    }
+}
+
+void matrix_mul( int nRows,  int nCols, int nAdd, float result[][nCols], float mat1[][nAdd], float mat2[][nCols]) {
+    for (int i = 0; i < nRows; i++) {
+	for (int j = 0; j < nCols; j++) {
+	    result[i][j] = 0.0;
+	    for (int k = 0; k < nAdd; k++) 
+		result[i][j] += mat1[i][k] * mat2[k][j];
+	}
+    }
+}
+
+/* inverse of 3x3 matrix /
+void matrix_inv(float result[3][3], float mat[3][3]) {
+    // calculate matrix of minors
+    float minors[3][3] = {{0}};
+    float detMat[2][2] = {{0}};
+    int offsetK = 0;
+    int offsetL = 0;
+    for (int i = 0; i < 3; i++) {
+	for (int j = 0; j < 3; j++) {
+	    // get determinant
+	    offsetK = 0;
+	    for (int k = 0; k < 2; k++) {
+		offsetL = 0;
+		for (int l = 0; l < 2; l++) {
+		    if (k == i) offsetK = 1;
+		    if (l == j) offsetL = 1;
+		    detMat[k][l] = mat[k + offsetK][l + offsetL];
+		}
+	    }
+	    minors[i][j] = detMat[0][0] * detMat[1][1] - detMat[0][1] * detMat[1][0];
+	}
+    }
+    
+    float det = mat[0][0] * minors[0][0] + mat[0][1] * minors[0][1] + mat[0][2] * minors[0][2];
+    
+    // cofactors and adjoint
+    for (int i = 0; i < 3; i++) {
+	for (int j = 0; j < 3; j++) {
+	    if ((i + j) % 2 != 0) minors[i][j] *= -1;
+	}
+    }
+    
+    for (int i = 0; i < 3; i++) {
+	for (int j = 0; j < 3; j++) {
+	    result[i][j] = minors[j][i] / det;
+	}
+    }
+}
+
+ */
