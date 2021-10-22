@@ -178,7 +178,7 @@
 struct Map {
     float pos[2];
     char grid[MAP_UNITS][MAP_UNITS];
-    struct Map ** neighbors;
+    struct Map * neighbors[8];
 };
 
 struct Bot {
@@ -199,13 +199,12 @@ struct Bot {
     char usState;
     char usCount;
     float distances[3];
+    char mapChangeLock;
     struct Map * currentMaps[4];            // current map bot is in [0] and directional adjunctions [1-3]
     struct Map * localMaps[4];              // modifiable copies in between samples
     char globalViewMaps[4][MAP_UNITS][MAP_UNITS];
     char localViewMaps[4][MAP_UNITS][MAP_UNITS];
     unsigned int numMaps;
-    struct Map ** queue;                     // general purpose queue
-    unsigned int queueIndex;
     float battery;
     
     /* auxiliary */
@@ -258,7 +257,7 @@ void Bot_Display_Status();
 void Bot_Display_Map(struct Map * map);
 
 /* map functions */
-struct Map * Map_Initialize(float x, float y, char fillVal);
+struct Map * Map_Initialize(float pos[2], char fillVal);
 void Map_Destroy(struct Map * map);
 char Map_Contains(struct Map * map, float * pos);
 

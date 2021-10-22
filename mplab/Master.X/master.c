@@ -47,14 +47,14 @@ int main() {
     long delay = 640000l;
     while (delay--);
     
-    //bot.pos[2] = M_PI;
-    bot.currentMaps[0] = Map_Initialize(-MAP_SIZE / 2, -MAP_SIZE / 2, DEFAULT_VAL);
-    Bot_Map_Required();
-    Bot_Add_Instruction(1.0, 0.0);
-    
     Init();
     UART_Write_String("Peripherals Initialized\r\n", 26);
     char whoami = IMU_Init();
+    
+    float startMap[2] = { -MAP_SIZE / 2, -MAP_SIZE / 2 };
+    bot.currentMaps[0] = Map_Initialize(startMap, DEFAULT_VAL);
+    Bot_Map_Required();
+    Bot_Add_Instruction(1.0, 0.0);
     
     snprintf(bot.buf, 100, "IMU address: %d\r\n", whoami);
     UART_Write_String(bot.buf, strlen(bot.buf));
@@ -180,105 +180,107 @@ void Bot_Trigger_Ultrasonic() {
 /* determine which maps will form part of supermap 
  * create maps if necessary */
 void Bot_Map_Required() {
-    /* save old maps and optimize */
-    Bot_Optimise_Local();
-    
-    /* update the current map based on the position of the bot */
-    if (!Map_Contains(bot.currentMaps[0], bot.pos)) {
-	for (char i = 0; i < 8; i++) {
-	    if (bot.currentMaps[0]->neighbors[i] && Map_Contains(bot.currentMaps[0]->neighbors[i], bot.pos)) {
-		bot.currentMaps[0] = bot.currentMaps[0]->neighbors[i];
-		break;
+    if (!bot.mapChangeLock) {
+	/* save old maps and optimize */
+	Bot_Optimise_Local();
+
+	/* update the current map based on the position of the bot */
+	if (!Map_Contains(bot.currentMaps[0], bot.pos)) {
+	    bot.mapChangeLock = 1;
+	    for (char i = 0; i < 8; i++) {
+		if (bot.currentMaps[0]->neighbors[i] && Map_Contains(bot.currentMaps[0]->neighbors[i], bot.pos)) {
+		    bot.currentMaps[0] = bot.currentMaps[0]->neighbors[i];
+		    for (char j = 1; j < 4; j++) bot.currentMaps[j] = NULL;
+		    break;
+		}
 	    }
 	}
-    }
-    
-    /*
-    snprintf(bot.buf, 100, "currentMap: (%.2f, %.2f)\r\n", bot.currentMaps[0]->pos[0], bot.currentMaps[0]->pos[1]);
-    UART_Write_String(bot.buf, strlen(bot.buf));*/
-    
-    /* determine current map corner with smallest view angle */
-    memcpy(bot.dPos, bot.pos, sizeof(float) * 3);
-    float viewVec[2] = { bot.pos[0] + cos(bot.pos[2]), bot.pos[1] - sin(bot.pos[2]) };
-    float rect[4][2] = {
-	{bot.currentMaps[0]->pos[0], bot.currentMaps[0]->pos[1]},
-	{bot.currentMaps[0]->pos[0] + MAP_SIZE, bot.currentMaps[0]->pos[1]},
-	{bot.currentMaps[0]->pos[0] + MAP_SIZE, bot.currentMaps[0]->pos[1] + MAP_SIZE},
-	{bot.currentMaps[0]->pos[0], bot.currentMaps[0]->pos[1] + MAP_SIZE}
-    };
-    float minAngle = M_PI;
-    char minIndex = 0;
-    for (char i = 0; i < 4; i++) {
-	float angle = getAngle(viewVec[0], viewVec[1], rect[i][0], rect[i][1]);
-	if (angle < minAngle) {
-	    minAngle = angle;
-	    minIndex = i;
+	
+	/* determine current map corner with smallest view angle */
+	memcpy(bot.dPos, bot.pos, sizeof(float) * 3);
+	float viewVec[2] = { bot.pos[0] + cos(bot.pos[2]), bot.pos[1] - sin(bot.pos[2]) };
+	float rect[4][2] = {
+	    {bot.currentMaps[0]->pos[0], bot.currentMaps[0]->pos[1]},
+	    {bot.currentMaps[0]->pos[0] + MAP_SIZE, bot.currentMaps[0]->pos[1]},
+	    {bot.currentMaps[0]->pos[0] + MAP_SIZE, bot.currentMaps[0]->pos[1] + MAP_SIZE},
+	    {bot.currentMaps[0]->pos[0], bot.currentMaps[0]->pos[1] + MAP_SIZE}
+	};
+	float minAngle = M_PI;
+	char minIndex = 0;
+	for (char i = 0; i < 4; i++) {
+	    float angle = getAngle(viewVec[0], viewVec[1], rect[i][0], rect[i][1]);
+	    if (angle < minAngle) {
+		minAngle = angle;
+		minIndex = i;
+	    }
 	}
-    }
-    
-    /* identify/create maps in corresponding direction */
-    char req[3] = {(2*minIndex - 1) % 8, 2*minIndex, (2*minIndex + 1) % 8};
-    for (char i = 0; i < 3; i++) {
-	if (!bot.currentMaps[0]->neighbors[req[i]]) {
-	    float x = bot.currentMaps[0]->pos[0] + posModifier[req[i]][0] * MAP_SIZE;
-	    float y = bot.currentMaps[0]->pos[1] + posModifier[req[i]][1] * MAP_SIZE;
-	    bot.currentMaps[0]->neighbors[req[i]] = Map_Initialize(x, y, DEFAULT_VAL);
+	
+
+	/* identify/create maps in corresponding direction */
+	char req[3] = {(2*minIndex + 7) % 8, 2*minIndex, (2*minIndex + 1) % 8};
+	for (char i = 0; i < 3; i++) {
+	    if (!bot.currentMaps[0]->neighbors[req[i]]) {
+		float pos[2] = { bot.currentMaps[0]->pos[0] + posModifier[req[i]][0] * MAP_SIZE, bot.currentMaps[0]->pos[1] + posModifier[req[i]][1] * MAP_SIZE };
+		struct Map * newMap = Map_Initialize(pos, DEFAULT_VAL);
+		bot.currentMaps[0]->neighbors[req[i]] = newMap;
+		newMap->neighbors[(req[i] + 4) % 8] = bot.currentMaps[0];
+		
+		Bot_Reinforce_Neighbors(newMap);
+	    }
+	    bot.currentMaps[i+1] = bot.currentMaps[0]->neighbors[req[i]];
 	}
-	bot.currentMaps[i+1] = bot.currentMaps[0]->neighbors[req[i]];
-    }
-    
-    snprintf(bot.buf, 100, "req: (%d, %d, %d)\r\n", req[0], req[1], req[2]);
-    UART_Write_String(bot.buf, strlen(bot.buf));
-    
-    /* reinforce neighbors */
-    bot.queue = malloc(sizeof(struct Map*) * bot.numMaps);
-    bot.queueIndex = 0;
-    for (char i = 0; i < bot.numMaps; i++) {
-	bot.queue[i] = NULL;
-    }
-    Bot_Reinforce_Neighbors(bot.currentMaps[0]);
-    free(bot.queue);
-    
-    snprintf(bot.buf, 100, "%d neighbors: %d, %d, %d, %d, %d, %d, %d, %d\r\n", 0, bot.currentMaps[0]->neighbors[0], bot.currentMaps[0]->neighbors[1], bot.currentMaps[0]->neighbors[2], bot.currentMaps[0]->neighbors[3],
-	bot.currentMaps[0]->neighbors[4], bot.currentMaps[0]->neighbors[5], bot.currentMaps[0]->neighbors[6], bot.currentMaps[0]->neighbors[7]);
-    UART_Write_String(bot.buf, strlen(bot.buf));
-    
-    
-    /* copy current map to local map */
-    for (char i = 0; i < 4; i++) {
-	if (!bot.localMaps[i]) bot.localMaps[i] = Map_Initialize(bot.currentMaps[i]->pos[0], bot.currentMaps[i]->pos[1], DEFAULT_VAL);
-	else {
-	    memcpy(bot.localMaps[i]->pos, bot.currentMaps[i]->pos, sizeof(float) * 2);
-	    /* nibble multiply back in global map */
-	    for (char j = 0; j < MAP_UNITS; j++)
-		for (char k = 0; k < MAP_UNITS; k++) {
-		    bot.localMaps[i]->grid[j][k] = bot.currentMaps[i]->grid[j][k];
-		    bot.localViewMaps[i][j][k] = 0;
-		}
+
+	/* copy current map to local map */
+	for (char i = 0; i < 4; i++) {
+	    if (!bot.localMaps[i]) bot.localMaps[i] = Map_Initialize(bot.currentMaps[i]->pos, DEFAULT_VAL);
+	    else {
+		memcpy(bot.localMaps[i]->pos, bot.currentMaps[i]->pos, sizeof(float) * 2);
+		/* nibble multiply back in global map */
+		for (char j = 0; j < MAP_UNITS; j++)
+		    for (char k = 0; k < MAP_UNITS; k++) {
+			bot.localMaps[i]->grid[j][k] = bot.currentMaps[i]->grid[j][k];
+			bot.localViewMaps[i][j][k] = 0;
+		    }
+	    }
 	}
+
+	bot.mapChangeLock = 0;
     }
 }
 
 void Bot_Reinforce_Neighbors(struct Map * map) {    
-    /* check queue for neighbors */
-    unsigned int index = 0;
-    while (bot.queue[index]) {
-	if (bot.queue[index] == map) return;
-	for (char i = 0; i < 8; i++) {
-	    if (bot.queue[index]->pos[0] == map->pos[0] + posModifier[i][0] * MAP_SIZE && bot.queue[index]->pos[1] == map->pos[1] + posModifier[i][1] * MAP_SIZE) {
-		map->neighbors[i] = bot.queue[index];
-		bot.queue[index]->neighbors[(i + 4) % 8] = map;
-		break;
+    /* check if existing neighbor(s) has additional neighbors */
+    for (char i = 0; i < 8; i++) {
+	if (map->neighbors[i]) {
+	    char mIndex = (i + 4) % 8;	// my index relative to neighbor
+	    if (i % 2) {
+		if (map->neighbors[i]->neighbors[(mIndex + 7) % 8]) {
+		    map->neighbors[(i + 2) % 8] = map->neighbors[i]->neighbors[(mIndex + 7) % 8];
+		    map->neighbors[i]->neighbors[(mIndex + 7) % 8]->neighbors[(i + 6) % 8] = map;
+		}
+		if (map->neighbors[i]->neighbors[(mIndex + 1) % 8]) {
+		    map->neighbors[(i + 6) % 8] = map->neighbors[i]->neighbors[(mIndex + 1) % 8];
+		    map->neighbors[i]->neighbors[(mIndex + 1) % 8]->neighbors[(i + 2) % 8] = map;
+		}
+		if (map->neighbors[i]->neighbors[(mIndex + 6) % 8]) {   
+		    map->neighbors[(i + 1) % 8] = map->neighbors[i]->neighbors[(mIndex + 6) % 8];
+		    map->neighbors[i]->neighbors[(mIndex + 6) % 8]->neighbors[(i + 5) % 8] = map;
+		}
+		if (map->neighbors[i]->neighbors[(mIndex + 2) % 8]) {
+		    map->neighbors[(i + 7) % 8] = map->neighbors[i]->neighbors[(mIndex + 2) % 8];
+		    map->neighbors[i]->neighbors[(mIndex + 2) % 8]->neighbors[(i + 3) % 8] = map;
+		}
+	    } else {
+		if (map->neighbors[i]->neighbors[(mIndex + 7) % 8]) {
+		    map->neighbors[(i + 1) % 8] = map->neighbors[i]->neighbors[(mIndex + 7) % 8];
+		    map->neighbors[i]->neighbors[(mIndex + 7) % 8]->neighbors[(i + 5) % 8] = map;
+		}
+		if (map->neighbors[i]->neighbors[(mIndex + 1) % 8]) {
+		    map->neighbors[(i + 7) % 8] = map->neighbors[i]->neighbors[(mIndex + 1) % 8];
+		    map->neighbors[i]->neighbors[(mIndex + 1) % 8]->neighbors[(i + 3) % 8] = map;
+		}
 	    }
 	}
-	index++;
-    }
-    
-    /* add self to queue and reinforce neighbors */
-    bot.queue[bot.queueIndex] = map;
-    bot.queueIndex++;
-    for (char i = 0; i < 8; i++) {
-	if (map->neighbors[i]) Bot_Reinforce_Neighbors(map->neighbors[i]);
     }
 }
 
@@ -343,7 +345,7 @@ void Bot_Map_Update() {
 void Bot_Optimise_Local() {
     /* save local map back to global */
     for (char i = 0; i < 4; i++) {
-	if (bot.localMaps[i]) {
+	if (bot.localMaps[i] && bot.currentMaps[i]) {
 	    for (char j = 0; j < MAP_UNITS; j++) {
 		for (char k = 0; k < MAP_UNITS; k++) {
 		    bot.currentMaps[i]->grid[j][k] = ((bot.currentMaps[i]->grid[j][k] + bot.localMaps[i]->grid[j][k]) >> 1) & 0xF;
@@ -431,7 +433,7 @@ void Bot_Controller() {
 }
 
 void Bot_Add_Instruction(float x, float y) {
-    if ((bot.execIndex - 1) % INPUTQ_SIZE != bot.addIndex) {
+    if ((bot.execIndex + INPUTQ_SIZE - 1) % INPUTQ_SIZE != bot.addIndex) {
 	bot.inputPosQueue[bot.addIndex][0] = x;
 	bot.inputPosQueue[bot.addIndex][1] = y;
 	bot.addIndex = (bot.addIndex + 1) % INPUTQ_SIZE;
@@ -484,22 +486,19 @@ void Bot_Display_Map(struct Map * map) {
 }
 
 /* map functions */
-struct Map * Map_Initialize(float x, float y, char fillVal) {
+struct Map * Map_Initialize(float pos[2], char fillVal) {
     struct Map * map = malloc(sizeof(struct Map));
-    map->pos[0] = x;
-    map->pos[1] = y;
+    memcpy(map->pos, pos, sizeof(float) * 2);
+    for (char i = 0; i < 8; i++) map->neighbors[i] = NULL;
     for (char i = 0; i < MAP_UNITS; i++)
 	for (char j = 0; j < MAP_UNITS; j++)
 	    map->grid[i][j] = fillVal;
-    map->neighbors = malloc(sizeof(struct Map*) * 8);
-    for (char i = 0; i < 8; i++) map->neighbors[i] = NULL;
-    bot.numMaps++;
     return map;
 }
 
 void Map_Destroy(struct Map * map) {
     if (map != NULL) {
-	free(map->neighbors);
+	//free(map->neighbors);
 	free(map);
 	map = NULL;
     }
@@ -521,7 +520,7 @@ void __ISR(_TIMER_2_VECTOR, IPL2SOFT) TMR2_IntHandler() {
     
     /* check if all readings taken, update map */
     if (bot.usState == US_SENSORS - 1) {
-	//Bot_Map_Update();
+	Bot_Map_Update();
     }
 }
 
