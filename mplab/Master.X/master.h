@@ -166,11 +166,13 @@
 #define US_TRIG_T 640                   // ultrasonic trigger
 #define US_SENSORS 3
 #define SENSOR_OFFSET 40. * M_PI / 180.  // angle offset between two sensors
+#define SENSOR_ANGLE 15. * M_PI / 180.
 #define SOUND_SPEED 1.65e-4              // TMR2*SOUND_SPEED for distance
-#define MAP_SIZE 60.0
-#define MAP_RES 3.0
+#define MAP_SIZE 0.6
+#define MAP_RES 0.03
 #define MAP_UNITS 20
 #define DEFAULT_VAL 0x07
+#define US_SIGMA 0.03
 
 /* bot data structure */
 struct Map {
@@ -181,7 +183,9 @@ struct Map {
 
 struct Bot {
     /* positioning */
+    unsigned long time;
     float pos[3];               // x, y, rot
+    float dPos[3];              // pos at last map update
     float inputPosQueue[INPUTQ_SIZE][2];
     unsigned int execIndex;
     unsigned int addIndex;
@@ -245,21 +249,24 @@ int I2C_Read(char periphAdd, char regAdd, char * data, int len);
 void Bot_Pos_Update();
 void Bot_Map_Required();
 void Bot_Reinforce_Neighbors(struct Map * map);
-void Bot_Map_Update(char global);
+void Bot_Map_Update();
+void Bot_Optimise_Local();
 void Bot_Trigger_Ultrasonic();
 void Bot_Controller();
 void Bot_Add_Instruction(float x, float y);
 void Bot_Display_Status();
+void Bot_Display_Map(struct Map * map);
 
 /* map functions */
 struct Map * Map_Initialize(float x, float y, char fillVal);
 void Map_Destroy(struct Map * map);
-
+char Map_Contains(struct Map * map, float * pos);
 
 /* helper functions */
 float getAngle(float x1, float y1, float x2, float y2);
 float getDistance(float x1, float y1, float x2, float y2);
-char distanceToPos(float pos[][2], float * distances);
+char distanceToPos(float pos[][2], float * valid, float * distances);
+char multivariateGaussian(float meanX, float meanY, float posX, float posY);
 /*
 void matrix_plus(int len, float result[][len], float mat1[][len], float mat2[][len]);
 void matrix_mul( int nRows,  int nCols, int nAdd, float result[][nCols], float mat1[][nAdd], float mat2[][nCols]);

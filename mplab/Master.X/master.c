@@ -41,16 +41,16 @@
 #pragma config BWP = OFF                // Boot Flash Write Protect bit (Protection Disabled)
 #pragma config CP = OFF                 // Code Protect (Protection Disabled)
 
-#include <math.h>
-
 #include "master.h"
 
 int main() {
     long delay = 640000l;
     while (delay--);
     
+    //bot.pos[2] = M_PI;
     bot.currentMaps[0] = Map_Initialize(-MAP_SIZE / 2, -MAP_SIZE / 2, DEFAULT_VAL);
-    Bot_Add_Instruction(6.0, 0.0);
+    Bot_Map_Required();
+    Bot_Add_Instruction(1.0, 0.0);
     
     Init();
     UART_Write_String("Peripherals Initialized\r\n", 26);
@@ -144,6 +144,10 @@ void Bot_Pos_Update() {
 	    bot.pos[0] = ePos[0];// + mMes[0][0];
 	    bot.pos[1] = ePos[1];// + mMes[0][1];
 	    bot.pos[2] = (1 - dc * K_EST) * ePos[2] + dc * K_EST * mPos[2];
+	    
+	    /* check if out of map bounds and turned too much */
+	    if ((fabs(bot.pos[2] - bot.dPos[2]) > SENSOR_OFFSET) || !Map_Contains(bot.currentMaps[0], bot.pos))
+		Bot_Map_Required();
 	    break;
 	}
     };
@@ -176,7 +180,25 @@ void Bot_Trigger_Ultrasonic() {
 /* determine which maps will form part of supermap 
  * create maps if necessary */
 void Bot_Map_Required() {
+    /* save old maps and optimize */
+    Bot_Optimise_Local();
+    
+    /* update the current map based on the position of the bot */
+    if (!Map_Contains(bot.currentMaps[0], bot.pos)) {
+	for (char i = 0; i < 8; i++) {
+	    if (bot.currentMaps[0]->neighbors[i] && Map_Contains(bot.currentMaps[0]->neighbors[i], bot.pos)) {
+		bot.currentMaps[0] = bot.currentMaps[0]->neighbors[i];
+		break;
+	    }
+	}
+    }
+    
+    /*
+    snprintf(bot.buf, 100, "currentMap: (%.2f, %.2f)\r\n", bot.currentMaps[0]->pos[0], bot.currentMaps[0]->pos[1]);
+    UART_Write_String(bot.buf, strlen(bot.buf));*/
+    
     /* determine current map corner with smallest view angle */
+    memcpy(bot.dPos, bot.pos, sizeof(float) * 3);
     float viewVec[2] = { bot.pos[0] + cos(bot.pos[2]), bot.pos[1] - sin(bot.pos[2]) };
     float rect[4][2] = {
 	{bot.currentMaps[0]->pos[0], bot.currentMaps[0]->pos[1]},
@@ -205,6 +227,9 @@ void Bot_Map_Required() {
 	bot.currentMaps[i+1] = bot.currentMaps[0]->neighbors[req[i]];
     }
     
+    snprintf(bot.buf, 100, "req: (%d, %d, %d)\r\n", req[0], req[1], req[2]);
+    UART_Write_String(bot.buf, strlen(bot.buf));
+    
     /* reinforce neighbors */
     bot.queue = malloc(sizeof(struct Map*) * bot.numMaps);
     bot.queueIndex = 0;
@@ -214,15 +239,23 @@ void Bot_Map_Required() {
     Bot_Reinforce_Neighbors(bot.currentMaps[0]);
     free(bot.queue);
     
+    snprintf(bot.buf, 100, "%d neighbors: %d, %d, %d, %d, %d, %d, %d, %d\r\n", 0, bot.currentMaps[0]->neighbors[0], bot.currentMaps[0]->neighbors[1], bot.currentMaps[0]->neighbors[2], bot.currentMaps[0]->neighbors[3],
+	bot.currentMaps[0]->neighbors[4], bot.currentMaps[0]->neighbors[5], bot.currentMaps[0]->neighbors[6], bot.currentMaps[0]->neighbors[7]);
+    UART_Write_String(bot.buf, strlen(bot.buf));
+    
+    
     /* copy current map to local map */
     for (char i = 0; i < 4; i++) {
-	if (bot.localMaps[i]) Map_Destroy(bot.localMaps[i]);
-	bot.localMaps[i] = Map_Initialize(bot.currentMaps[i]->pos[0], bot.currentMaps[i]->pos[1], DEFAULT_VAL);
-	for (char j = 0; j < MAP_UNITS; i++)
-	    for (char k = 0; k < MAP_UNITS; k++) {
-		bot.localMaps[i]->grid[j][k] = bot.currentMaps[i]->grid[j][k];
-		bot.localViewMaps[i][j][k] = 0;
-	    }
+	if (!bot.localMaps[i]) bot.localMaps[i] = Map_Initialize(bot.currentMaps[i]->pos[0], bot.currentMaps[i]->pos[1], DEFAULT_VAL);
+	else {
+	    memcpy(bot.localMaps[i]->pos, bot.currentMaps[i]->pos, sizeof(float) * 2);
+	    /* nibble multiply back in global map */
+	    for (char j = 0; j < MAP_UNITS; j++)
+		for (char k = 0; k < MAP_UNITS; k++) {
+		    bot.localMaps[i]->grid[j][k] = bot.currentMaps[i]->grid[j][k];
+		    bot.localViewMaps[i][j][k] = 0;
+		}
+	}
     }
 }
 
@@ -249,33 +282,75 @@ void Bot_Reinforce_Neighbors(struct Map * map) {
     }
 }
 
-void Bot_Map_Update(char global) {
-    if (global) {
-	Bot_Map_Required();
-    }
-    float pos[US_SENSORS][2];
-    char numPos = distanceToPos(pos, bot.distances);
+void Bot_Map_Update() {
+    if (bot.usCount == 0) Bot_Map_Required();
+    float obstaclePos[US_SENSORS][2];
+    float valid[US_SENSORS] = {0};
+    char numPos = distanceToPos(obstaclePos, valid, bot.distances);
     
-    /* loop each local cell, check validity and modify */
-    float viewVec[2] = { bot.pos[0] + cos(bot.pos[2]), bot.pos[1] - sin(bot.pos[2]) };
-    float angle, distance;
-    for (char i = 0; i < 4; i++) {
-	for (char j = 0; j < MAP_UNITS; j++) {
-	    for (char k = 0; k < MAP_UNITS; k++) {
-		float pos[2] = { bot.localMaps[i]->pos[0] + MAP_RES * j, bot.localMaps[i]->pos[1] + MAP_RES * k };
-		float posVec[2] = { pos[0] - bot.pos[0], pos[1] - bot.pos[1] };
-		angle = getAngle(viewVec[0], viewVec[1], posVec[0], posVec[1]);
-		if (angle > -SENSOR_OFFSET && angle < SENSOR_OFFSET) {
-		    distance = getDistance(pos[0], pos[1], bot.pos[0], bot.pos[1]);
-		    if (distance >= MIN_US_DIST && distance <= MAX_US_DIST) {
-			bot.localViewMaps[i][j][k] = 1;
+    if (numPos > 0) {
+	/* loop each local cell, check validity and modify */
+	float max = 0;
+	float probMap[4][MAP_UNITS][MAP_UNITS] = {{{0}}};
+	float viewVec[2] = { bot.pos[0] + cos(bot.pos[2]), bot.pos[1] - sin(bot.pos[2]) };
+	for (char i = 0; i < 4; i++) {
+	    for (char j = 0; j < MAP_UNITS; j++) {
+		for (char k = 0; k < MAP_UNITS; k++) {
+		    float pos[2] = { bot.localMaps[i]->pos[0] + MAP_RES * j, bot.localMaps[i]->pos[1] + MAP_RES * k };
+		    float posVec[2] = { pos[0] - bot.pos[0], pos[1] - bot.pos[1] };
+		    float angle = getAngle(viewVec[0], viewVec[1], posVec[0], posVec[1]);
+		    float distance = getDistance(pos[0], pos[1], bot.pos[0], bot.pos[1]);
+		    
+		    /* make sure position is not behind reading */
+		    if (angle > -SENSOR_OFFSET && angle < SENSOR_OFFSET && distance > MIN_US_DIST) {
+			char flag = 0;
+			for (char l = 0; l < US_SENSORS; l++) {
+			    if (angle > (sensorOffsets[l] - SENSOR_ANGLE) && angle < (sensorOffsets[l] + SENSOR_ANGLE)) {
+				if ((!valid[l] && distance < MAX_US_DIST) || (valid[l] && distance < bot.distances[l])) flag = 1;
+				break;
+			    }
+			}
+		    
+			if (flag) {
+			    bot.localViewMaps[i][j][k] = bot.usCount + 1;
+			    for (char l = 0; l < US_SENSORS; l++) {
+				if (valid[l]) probMap[i][j][k] += multivariateGaussian(obstaclePos[l][0], obstaclePos[l][1], pos[0], pos[1]);
+			    }
+			    if (max < probMap[i][j][k]) max = probMap[i][j][k];
+			}
+		    }
+		}
+	    }
+	}
+	
+	max *= 1.01;
+	for (char i = 0; i < 4; i++) {
+	    for (char j = 0; j < MAP_UNITS; j++) {
+		for (char k = 0; k < MAP_UNITS; k++) {
+		    if (bot.localViewMaps[i][j][k] == bot.usCount + 1) {
+			char nibbleProb = (char)(probMap[i][j][k] * 16.0 / max);
+			bot.localMaps[i]->grid[j][k] = ((bot.localMaps[i]->grid[j][k] + nibbleProb) >> 1) & 0xF;
 		    }
 		}
 	    }
 	}
     }
     
-    Nop();
+    
+    bot.usCount = (bot.usCount + 1) % 10;
+}
+
+void Bot_Optimise_Local() {
+    /* save local map back to global */
+    for (char i = 0; i < 4; i++) {
+	if (bot.localMaps[i]) {
+	    for (char j = 0; j < MAP_UNITS; j++) {
+		for (char k = 0; k < MAP_UNITS; k++) {
+		    bot.currentMaps[i]->grid[j][k] = ((bot.currentMaps[i]->grid[j][k] + bot.localMaps[i]->grid[j][k]) >> 1) & 0xF;
+		}
+	    }
+	}
+    }
 }
 
 void Bot_Controller() { 
@@ -369,7 +444,7 @@ void Bot_Display_Status() {
 	if (bot.currentMaps[i]) memcpy(mapPos[i], bot.currentMaps[i], sizeof(float) * 2);
     }
     
-    snprintf(bot.buf, 100, "\33[2J\33[HBot state: %d, battery: %.2f%%\r\n", bot.state, bot.battery);
+    snprintf(bot.buf, 100, "\33[2J\33[H(%ds) Bot state: %d, battery: %.2f%%\r\n", bot.time, bot.state, bot.battery);
     UART_Write_String(bot.buf, strlen(bot.buf));
     snprintf(bot.buf, 100, "pos: (%.2f, %.2f, %.2f)\r\n", bot.pos[0], bot.pos[1], bot.pos[2] * 180.0 / M_PI);
     UART_Write_String(bot.buf, strlen(bot.buf));
@@ -392,6 +467,19 @@ void Bot_Display_Status() {
 		bot.currentMaps[i]->neighbors[4], bot.currentMaps[i]->neighbors[5], bot.currentMaps[i]->neighbors[6], bot.currentMaps[i]->neighbors[7]);
 	    UART_Write_String(bot.buf, strlen(bot.buf));
 	}
+    }
+}
+
+void Bot_Display_Map(struct Map * map) {
+    snprintf(bot.buf, 100, "\r\nMap pos: (%.2f, %.2f)\r\n", map->pos[0], map->pos[1]);
+    UART_Write_String(bot.buf, strlen(bot.buf));
+    for (char i = 0; i < MAP_UNITS; i++) {
+	snprintf(bot.buf, 100, "%d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d\r\n",
+	    map->grid[0][i], map->grid[1][i], map->grid[2][i], map->grid[3][i], map->grid[4][i],
+	    map->grid[5][i], map->grid[6][i], map->grid[7][i], map->grid[8][i], map->grid[9][i],
+	    map->grid[10][i], map->grid[11][i], map->grid[12][i], map->grid[13][i], map->grid[14][i],
+	    map->grid[15][i], map->grid[16][i], map->grid[17][i], map->grid[18][i], map->grid[19][i]);
+	UART_Write_String(bot.buf, strlen(bot.buf));
     }
 }
 
@@ -418,6 +506,12 @@ void Map_Destroy(struct Map * map) {
     bot.numMaps--;
 }
 
+char Map_Contains(struct Map * map, float * pos) {
+    float xRange[2] = { map->pos[0], map->pos[0] + MAP_SIZE };
+    float yRange[2] = { map->pos[1], map->pos[1] + MAP_SIZE };
+    return ((pos[0] > xRange[0]) && (pos[0] < xRange[1]) && (pos[1] > yRange[0]) && (pos[1] < yRange[1]));
+}
+
 /* Interrupt functions */
 
 /* Ultrasonic echo timer */
@@ -427,8 +521,7 @@ void __ISR(_TIMER_2_VECTOR, IPL2SOFT) TMR2_IntHandler() {
     
     /* check if all readings taken, update map */
     if (bot.usState == US_SENSORS - 1) {
-	bot.usCount = (bot.usCount + 1) % 10;
-	Bot_Map_Update(bot.usCount == 0);
+	//Bot_Map_Update();
     }
 }
 
@@ -436,15 +529,16 @@ void __ISR(_TIMER_2_VECTOR, IPL2SOFT) TMR2_IntHandler() {
 void __ISR(_TIMER_4_VECTOR, IPL2SOFT) TMR4_IntHandler() {
     IFS0CLR = _IFS0_T4IF_MASK;
     
-    Bot_Pos_Update(); 
-    //Bot_Map_Update();	    // move back to TMR2
+    Bot_Pos_Update();
     Bot_Trigger_Ultrasonic();
     Bot_Controller();
     
-    bot.count = (bot.count + 1) % (int)FREQ;
+    bot.count = (bot.count + 1) % 10;//(int)FREQ;
     if (bot.count == 0) {
+	bot.time++;
 	AD1CON1SET = _AD1CON1_SAMP_MASK;
 	Bot_Display_Status();
+	Bot_Display_Map(bot.currentMaps[0]);
     }
 }
 
@@ -702,20 +796,27 @@ float getDistance(float x1, float y1, float x2, float y2) {
     return sqrtf(powf(x1 - x2, 2) + powf(y1 - y2, 2));
 }
 
-char distanceToPos(float pos[][2], float * distances) {
+char distanceToPos(float pos[][2], float * valid, float * distances) {
     char index = 0;
     for (char i = 0; i < US_SENSORS; i++) {
 	if (distances[i] >= MIN_US_DIST && distances[i] <= MAX_US_DIST) {
-	    pos[index][0] = bot.pos[0] + distances[i] * cos(sensorOffsets[i] - bot.pos[2]);
-	    pos[index][1] = bot.pos[1] + distances[i] * sin(sensorOffsets[i] - bot.pos[2]);
+	    pos[i][0] = bot.pos[0] + distances[i] * cos(sensorOffsets[i] - bot.pos[2]);
+	    pos[i][1] = bot.pos[1] + distances[i] * sin(sensorOffsets[i] - bot.pos[2]);
+	    valid[i] = 1;
 	    index++;
 	}
     }
     return index;
 }
 
+char multivariateGaussian(float meanX, float meanY, float posX, float posY) {
+    float devX = (posX - meanX) / US_SIGMA;
+    float devY = (posY - meanY) / US_SIGMA;
+    return 1 / (2*M_PI * US_SIGMA * US_SIGMA) * exp(-0.5 * (powf(devX, 2) + powf(devY, 2)));
+}
+
 /*
-void matrix_plus(int len, float result[][len], float mat1[][len], float mat2[][len]) {
+void matrix_plus(int len, float result[][len], float mat1[][len], float ma6t2[][len]) {
     for (int i = 0; i < len; i++) {
 	for (int j = 0; j < len; j++) {
 	    result[i][j] = mat1[i][j] + mat2[i][j];
