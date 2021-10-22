@@ -49,7 +49,7 @@ int main() {
     long delay = 640000l;
     while (delay--);
     
-    bot.currentMap = Map_Initialize(-MAP_SIZE / 2, -MAP_SIZE / 2, DEFAULT_VAL);
+    bot.currentMaps[0] = Map_Initialize(-MAP_SIZE / 2, -MAP_SIZE / 2, DEFAULT_VAL);
     Bot_Add_Instruction(6.0, 0.0);
     
     Init();
@@ -173,8 +173,109 @@ void Bot_Trigger_Ultrasonic() {
     }
 }
 
-void Bot_Map_Update() {
+/* determine which maps will form part of supermap 
+ * create maps if necessary */
+void Bot_Map_Required() {
+    /* determine current map corner with smallest view angle */
+    float viewVec[2] = { bot.pos[0] + cos(bot.pos[2]), bot.pos[1] - sin(bot.pos[2]) };
+    float rect[4][2] = {
+	{bot.currentMaps[0]->pos[0], bot.currentMaps[0]->pos[1]},
+	{bot.currentMaps[0]->pos[0] + MAP_SIZE, bot.currentMaps[0]->pos[1]},
+	{bot.currentMaps[0]->pos[0] + MAP_SIZE, bot.currentMaps[0]->pos[1] + MAP_SIZE},
+	{bot.currentMaps[0]->pos[0], bot.currentMaps[0]->pos[1] + MAP_SIZE}
+    };
+    float minAngle = M_PI;
+    char minIndex = 0;
+    for (char i = 0; i < 4; i++) {
+	float angle = getAngle(viewVec[0], viewVec[1], rect[i][0], rect[i][1]);
+	if (angle < minAngle) {
+	    minAngle = angle;
+	    minIndex = i;
+	}
+    }
     
+    /* identify/create maps in corresponding direction */
+    char req[3] = {(2*minIndex - 1) % 8, 2*minIndex, (2*minIndex + 1) % 8};
+    for (char i = 0; i < 3; i++) {
+	if (!bot.currentMaps[0]->neighbors[req[i]]) {
+	    float x = bot.currentMaps[0]->pos[0] + posModifier[req[i]][0] * MAP_SIZE;
+	    float y = bot.currentMaps[0]->pos[1] + posModifier[req[i]][1] * MAP_SIZE;
+	    bot.currentMaps[0]->neighbors[req[i]] = Map_Initialize(x, y, DEFAULT_VAL);
+	}
+	bot.currentMaps[i+1] = bot.currentMaps[0]->neighbors[req[i]];
+    }
+    
+    /* reinforce neighbors */
+    bot.queue = malloc(sizeof(struct Map*) * bot.numMaps);
+    bot.queueIndex = 0;
+    for (char i = 0; i < bot.numMaps; i++) {
+	bot.queue[i] = NULL;
+    }
+    Bot_Reinforce_Neighbors(bot.currentMaps[0]);
+    free(bot.queue);
+    
+    /* copy current map to local map */
+    for (char i = 0; i < 4; i++) {
+	if (bot.localMaps[i]) Map_Destroy(bot.localMaps[i]);
+	bot.localMaps[i] = Map_Initialize(bot.currentMaps[i]->pos[0], bot.currentMaps[i]->pos[1], DEFAULT_VAL);
+	for (char j = 0; j < MAP_UNITS; i++)
+	    for (char k = 0; k < MAP_UNITS; k++) {
+		bot.localMaps[i]->grid[j][k] = bot.currentMaps[i]->grid[j][k];
+		bot.localViewMaps[i][j][k] = 0;
+	    }
+    }
+}
+
+void Bot_Reinforce_Neighbors(struct Map * map) {    
+    /* check queue for neighbors */
+    unsigned int index = 0;
+    while (bot.queue[index]) {
+	if (bot.queue[index] == map) return;
+	for (char i = 0; i < 8; i++) {
+	    if (bot.queue[index]->pos[0] == map->pos[0] + posModifier[i][0] * MAP_SIZE && bot.queue[index]->pos[1] == map->pos[1] + posModifier[i][1] * MAP_SIZE) {
+		map->neighbors[i] = bot.queue[index];
+		bot.queue[index]->neighbors[(i + 4) % 8] = map;
+		break;
+	    }
+	}
+	index++;
+    }
+    
+    /* add self to queue and reinforce neighbors */
+    bot.queue[bot.queueIndex] = map;
+    bot.queueIndex++;
+    for (char i = 0; i < 8; i++) {
+	if (map->neighbors[i]) Bot_Reinforce_Neighbors(map->neighbors[i]);
+    }
+}
+
+void Bot_Map_Update(char global) {
+    if (global) {
+	Bot_Map_Required();
+    }
+    float pos[US_SENSORS][2];
+    char numPos = distanceToPos(pos, bot.distances);
+    
+    /* loop each local cell, check validity and modify */
+    float viewVec[2] = { bot.pos[0] + cos(bot.pos[2]), bot.pos[1] - sin(bot.pos[2]) };
+    float angle, distance;
+    for (char i = 0; i < 4; i++) {
+	for (char j = 0; j < MAP_UNITS; j++) {
+	    for (char k = 0; k < MAP_UNITS; k++) {
+		float pos[2] = { bot.localMaps[i]->pos[0] + MAP_RES * j, bot.localMaps[i]->pos[1] + MAP_RES * k };
+		float posVec[2] = { pos[0] - bot.pos[0], pos[1] - bot.pos[1] };
+		angle = getAngle(viewVec[0], viewVec[1], posVec[0], posVec[1]);
+		if (angle > -SENSOR_OFFSET && angle < SENSOR_OFFSET) {
+		    distance = getDistance(pos[0], pos[1], bot.pos[0], bot.pos[1]);
+		    if (distance >= MIN_US_DIST && distance <= MAX_US_DIST) {
+			bot.localViewMaps[i][j][k] = 1;
+		    }
+		}
+	    }
+	}
+    }
+    
+    Nop();
 }
 
 void Bot_Controller() { 
@@ -195,24 +296,23 @@ void Bot_Controller() {
 	    /* navigate: obtain error angle and distance */
 	    float viewVec[2] = { bot.pos[0] + cos(bot.pos[2]), bot.pos[1] - sin(bot.pos[2]) };
 	    float inputVec[2] = { bot.inputPosQueue[bot.execIndex][0] - bot.pos[0], bot.inputPosQueue[bot.execIndex][1] - bot.pos[1] };
-	    bot.theta = acos((viewVec[0] * inputVec[0] + viewVec[1] * inputVec[1]) / (sqrt(viewVec[0]*viewVec[0] + viewVec[1]*viewVec[1]) * sqrt(inputVec[0]*inputVec[0] + inputVec[1]*inputVec[1])));
-	    if (isnanf(bot.theta)) bot.theta = 0.0;
-	    bot.distance = sqrtf(powf(bot.inputPosQueue[bot.execIndex][0] - bot.pos[0], 2) + powf(bot.inputPosQueue[bot.execIndex][1] - bot.pos[1], 2));
+	    float angle = getAngle(viewVec[0], viewVec[1], inputVec[0], inputVec[1]);
+	    float distance = getDistance(bot.inputPosQueue[bot.execIndex][0], bot.inputPosQueue[bot.execIndex][1], bot.pos[0], bot.pos[1]);
     
-	    if (bot.distance > MIN_DIST && bot.distances[0] > MIN_DIST && bot.distances[1] > MIN_DIST && bot.distances[2] > MIN_DIST) {
+	    if (distance > MIN_DIST) {// && bot.distances[0] > MIN_DIST && bot.distances[1] > MIN_DIST && bot.distances[2] > MIN_DIST) {
 		float ePos[3] = {0};
-		ePos[2] = bot.theta - bot.pos[2];
-		bot.rotSign = (ePos[2] < 0.0) ? -1.0 : 1.0;
-		bot.maxTurn = fabs(ePos[2]) / (BETA + fabs(ePos[2]));
+		ePos[2] = angle - bot.pos[2];
+		float rotSign = (ePos[2] < 0.0) ? -1.0 : 1.0;
+		float maxTurn = fabs(ePos[2]) / (BETA + fabs(ePos[2]));
 		float newDuty[2] = {0};
 
 		if (fabs(ePos[2]) > ERROR_MAX) {
-		    newDuty[0] = bot.rotSign * bot.maxTurn / K_TURN;
-		    newDuty[1] = bot.rotSign * -bot.maxTurn / K_TURN;
+		    newDuty[0] = rotSign * maxTurn / K_TURN;
+		    newDuty[1] = rotSign * -maxTurn / K_TURN;
 		} else {
-		    bot.maxSpeed = bot.distance / (ALPHA + bot.distance);
-		    newDuty[0] = bot.maxSpeed / 2.0 + bot.rotSign * bot.maxTurn;
-		    newDuty[1] = bot.maxSpeed / 2.0 + bot.rotSign * -bot.maxTurn;
+		    float maxSpeed = distance / (ALPHA + distance);
+		    newDuty[0] = maxSpeed / 2.0 + rotSign * maxTurn;
+		    newDuty[1] = maxSpeed / 2.0 + rotSign * -maxTurn;
 		}
 
 		for (int i = 0; i < 2; i++) {
@@ -264,7 +364,12 @@ void Bot_Add_Instruction(float x, float y) {
 }
 
 void Bot_Display_Status() {
-    snprintf(bot.buf, 100, "\33[2J\33[HBot status (%d)\r\n", bot.state);
+    float mapPos[4][2] = {{0}};
+    for (char i = 0; i < 4; i++) {
+	if (bot.currentMaps[i]) memcpy(mapPos[i], bot.currentMaps[i], sizeof(float) * 2);
+    }
+    
+    snprintf(bot.buf, 100, "\33[2J\33[HBot state: %d, battery: %.2f%%\r\n", bot.state, bot.battery);
     UART_Write_String(bot.buf, strlen(bot.buf));
     snprintf(bot.buf, 100, "pos: (%.2f, %.2f, %.2f)\r\n", bot.pos[0], bot.pos[1], bot.pos[2] * 180.0 / M_PI);
     UART_Write_String(bot.buf, strlen(bot.buf));
@@ -278,10 +383,16 @@ void Bot_Display_Status() {
     UART_Write_String(bot.buf, strlen(bot.buf));
     snprintf(bot.buf, 100, "dist: (%.2f, %.2f, %.2f)\r\n", bot.distances[0], bot.distances[1], bot.distances[2]);
     UART_Write_String(bot.buf, strlen(bot.buf));
-    snprintf(bot.buf, 100, "numMaps: %d, current: (%.2f, %.2f)\r\n", bot.numMaps, bot.currentMap->pos[0], bot.currentMap->pos[1]);
+    snprintf(bot.buf, 100, "numMaps: %d, current: (%.2f, %.2f), (%.2f, %.2f), (%.2f, %.2f), (%.2f, %.2f)\r\n", bot.numMaps,
+	mapPos[0][0], mapPos[0][1], mapPos[1][0], mapPos[1][1], mapPos[2][0], mapPos[2][1], mapPos[3][0], mapPos[3][1]);
     UART_Write_String(bot.buf, strlen(bot.buf));
-    snprintf(bot.buf, 100, "theta: %.2f, distance: %.2f, maxTurn: %.2f, maxSpeed: %.2f, rotSign: %.2f\r\n", bot.theta * 180.0 / M_PI, bot.distance, bot.maxTurn, bot.maxSpeed, bot.rotSign);
-    UART_Write_String(bot.buf, strlen(bot.buf));
+    for (char i = 0; i < 4; i++) {
+	if (bot.currentMaps[i]) {
+	    snprintf(bot.buf, 100, "%d neighbors: %d, %d, %d, %d, %d, %d, %d, %d\r\n", i, bot.currentMaps[i]->neighbors[0], bot.currentMaps[i]->neighbors[1], bot.currentMaps[i]->neighbors[2], bot.currentMaps[i]->neighbors[3],
+		bot.currentMaps[i]->neighbors[4], bot.currentMaps[i]->neighbors[5], bot.currentMaps[i]->neighbors[6], bot.currentMaps[i]->neighbors[7]);
+	    UART_Write_String(bot.buf, strlen(bot.buf));
+	}
+    }
 }
 
 /* map functions */
@@ -289,10 +400,11 @@ struct Map * Map_Initialize(float x, float y, char fillVal) {
     struct Map * map = malloc(sizeof(struct Map));
     map->pos[0] = x;
     map->pos[1] = y;
-    for (int i = 0; i < MAP_UNITS; i++)
-	for (int j = 0; j < MAP_UNITS; j++)
+    for (char i = 0; i < MAP_UNITS; i++)
+	for (char j = 0; j < MAP_UNITS; j++)
 	    map->grid[i][j] = fillVal;
     map->neighbors = malloc(sizeof(struct Map*) * 8);
+    for (char i = 0; i < 8; i++) map->neighbors[i] = NULL;
     bot.numMaps++;
     return map;
 }
@@ -312,19 +424,27 @@ void Map_Destroy(struct Map * map) {
 void __ISR(_TIMER_2_VECTOR, IPL2SOFT) TMR2_IntHandler() {
     IFS0CLR = _IFS0_T2IF_MASK;
     bot.distances[bot.usState] = (float)TMR2 * SOUND_SPEED;
+    
+    /* check if all readings taken, update map */
+    if (bot.usState == US_SENSORS - 1) {
+	bot.usCount = (bot.usCount + 1) % 10;
+	Bot_Map_Update(bot.usCount == 0);
+    }
 }
 
 /* Sample timer */
 void __ISR(_TIMER_4_VECTOR, IPL2SOFT) TMR4_IntHandler() {
     IFS0CLR = _IFS0_T4IF_MASK;
     
-    Bot_Pos_Update();  
+    Bot_Pos_Update(); 
+    //Bot_Map_Update();	    // move back to TMR2
     Bot_Trigger_Ultrasonic();
     Bot_Controller();
     
-    if (bot.count++ == 5) {
+    bot.count = (bot.count + 1) % (int)FREQ;
+    if (bot.count == 0) {
+	AD1CON1SET = _AD1CON1_SAMP_MASK;
 	Bot_Display_Status();
-	bot.count = 0;
     }
 }
 
@@ -336,7 +456,7 @@ void __ISR(_TIMER_5_VECTOR, IPL2SOFT) TMR5_IntHandler() {
 void __ISR(_ADC_VECTOR, IPL2SOFT) ADC_IntHandler() {
     if (IFS0bits.AD1IF) {
 	IFS0CLR = _IFS0_AD1IF_MASK;
-	bot.battery = (ADC1BUF0 >> 8) & 0xFF;
+	bot.battery = (((ADC1BUF0 >> 8) & 0xFF) - ADC_OFFSET) * ADC_SCALE;
     }
 }
 
@@ -432,8 +552,8 @@ void Init() {
     
     /* Sampling timer */
     TMR4 = 0x0;
-    PR4 = 0xFFFF;		// f = 15 Hz
-    T4CON = 0x8050;		// 1:32 prescaler = 1 MHz (reset to 0x8050)
+    PR4 = 0x8235;		// f = 30.0003 Hz
+    T4CON = 0x8050;		// 1:32 prescaler = 2 MHz (reset to 0x8050)
     
     /* Long counter */
     TMR5 = 0x0;
@@ -571,7 +691,30 @@ char IMU_Init() {
 }
 
 
-/* Helper functions /
+/* Helper functions */
+float getAngle(float x1, float y1, float x2, float y2) {
+    float angle = acos((x1*x2 + y1*y2) / (sqrt(x1*x1 + y1*y1) * sqrt(x2*x2 + y2*y2)));
+    if (isnanf(angle)) return 0.0;
+    return angle;	    
+}
+
+float getDistance(float x1, float y1, float x2, float y2) {
+    return sqrtf(powf(x1 - x2, 2) + powf(y1 - y2, 2));
+}
+
+char distanceToPos(float pos[][2], float * distances) {
+    char index = 0;
+    for (char i = 0; i < US_SENSORS; i++) {
+	if (distances[i] >= MIN_US_DIST && distances[i] <= MAX_US_DIST) {
+	    pos[index][0] = bot.pos[0] + distances[i] * cos(sensorOffsets[i] - bot.pos[2]);
+	    pos[index][1] = bot.pos[1] + distances[i] * sin(sensorOffsets[i] - bot.pos[2]);
+	    index++;
+	}
+    }
+    return index;
+}
+
+/*
 void matrix_plus(int len, float result[][len], float mat1[][len], float mat2[][len]) {
     for (int i = 0; i < len; i++) {
 	for (int j = 0; j < len; j++) {

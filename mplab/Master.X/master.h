@@ -16,7 +16,7 @@
 #define UART_BAUD 38400l
 #define I2C_W 0x0
 #define I2C_R 0x1
-#define FREQ 15.0
+#define FREQ 30.0003
 #define DT 1.0 / FREQ                    
 
 /* MPU registers */
@@ -154,13 +154,18 @@
 #define K_TURN 5.0
 #define ERROR_MAX 0.7854                // 45 degrees
 #define MIN_DIST 0.05
+#define MIN_US_DIST 0.03                // minimum distance visible
+#define MAX_US_DIST 0.6
 #define MIN_PWM 0.1
 #define Q_VAL 0.5
 #define R_VAL 0.5
 #define INPUTQ_SIZE 50
+#define ADC_SCALE 4.54
+#define ADC_OFFSET 170
 
 #define US_TRIG_T 640                   // ultrasonic trigger
 #define US_SENSORS 3
+#define SENSOR_OFFSET 40. * M_PI / 180.  // angle offset between two sensors
 #define SOUND_SPEED 1.65e-4              // TMR2*SOUND_SPEED for distance
 #define MAP_SIZE 60.0
 #define MAP_RES 3.0
@@ -188,9 +193,15 @@ struct Bot {
     
     /* mapping */
     char usState;
+    char usCount;
     float distances[3];
-    struct Map * currentMap;
+    struct Map * currentMaps[4];            // current map bot is in [0] and directional adjunctions [1-3]
+    struct Map * localMaps[4];              // modifiable copies in between samples
+    char globalViewMaps[4][MAP_UNITS][MAP_UNITS];
+    char localViewMaps[4][MAP_UNITS][MAP_UNITS];
     unsigned int numMaps;
+    struct Map ** queue;                     // general purpose queue
+    unsigned int queueIndex;
     float battery;
     
     /* auxiliary */
@@ -198,17 +209,21 @@ struct Bot {
     char state;
     int portCN;
     unsigned char buf[100];
-    
-    /* temporary */
-    float theta;
-    float distance;
-    float maxSpeed;
-    float maxTurn;
-    float rotSign;
 };
 
 /* static global variables/constants */
 static struct Bot bot = { .state=0 };
+static char posModifier[8][2] = {
+    {-1, -1},
+    {0, -1},
+    {1, -1},
+    {1, 0},
+    {1, 1},
+    {0, 1},
+    {-1, 1},
+    {-1, 0}
+};
+static float sensorOffsets[US_SENSORS] = { SENSOR_OFFSET, 0.0, -SENSOR_OFFSET };
 
 /* peripheral defintions */
 void Init();
@@ -228,7 +243,9 @@ int I2C_Read(char periphAdd, char regAdd, char * data, int len);
 
 /* bot functions */
 void Bot_Pos_Update();
-void Bot_Map_Update();
+void Bot_Map_Required();
+void Bot_Reinforce_Neighbors(struct Map * map);
+void Bot_Map_Update(char global);
 void Bot_Trigger_Ultrasonic();
 void Bot_Controller();
 void Bot_Add_Instruction(float x, float y);
@@ -240,8 +257,13 @@ void Map_Destroy(struct Map * map);
 
 
 /* helper functions */
+float getAngle(float x1, float y1, float x2, float y2);
+float getDistance(float x1, float y1, float x2, float y2);
+char distanceToPos(float pos[][2], float * distances);
+/*
 void matrix_plus(int len, float result[][len], float mat1[][len], float mat2[][len]);
 void matrix_mul( int nRows,  int nCols, int nAdd, float result[][nCols], float mat1[][nAdd], float mat2[][nCols]);
 void matrix_inv(float result[3][3], float mat[3][3]);
+*/
 
 #endif
