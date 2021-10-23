@@ -171,17 +171,23 @@
 #define SENSOR_OFFSET 40. * M_PI / 180.  // angle offset between two sensors
 #define SENSOR_ANGLE 15. * M_PI / 180.
 #define SOUND_SPEED 1.65e-4              // TMR2*SOUND_SPEED for distance
-#define MAP_SIZE 0.6
-#define MAP_RES 0.03
-#define MAP_UNITS 20
+#define MAP_SIZE 0.64
+#define MAP_RES 0.04
+#define MAP_UNITS 16
+#define MAP_UNITS_BIT 2
 #define DEFAULT_VAL 0x07
 #define US_SIGMA 0.03
 
-/* bot data structure */
-struct Map {
+/* bot data structures */
+struct ProbMap {
     float pos[2];
     char grid[MAP_UNITS][MAP_UNITS];
-    struct Map * neighbors[8];
+};
+
+struct BitMap {
+    float pos[2];
+    char grid[MAP_UNITS][MAP_UNITS_BIT];
+    struct BitMap * neighbors[8];
 };
 
 struct Bot {
@@ -202,12 +208,10 @@ struct Bot {
     /* mapping */
     char usState;
     char usCount;
-    float distances[4];
-    char mapChangeLock;
-    struct Map * currentMaps[4];            // current map bot is in [0] and directional adjunctions [1-3]
-    struct Map * localMaps[4];              // modifiable copies in between samples
-    char globalViewMaps[4][MAP_UNITS][MAP_UNITS];
-    char localViewMaps[4][MAP_UNITS][MAP_UNITS];
+    float distances[3];
+    struct BitMap * currentMap;            // current bitmap of bot
+    struct ProbMap * localMaps[4];              // modifiable copies in between samples (0 is current map, 1-3 viewed maps)
+    char localViewMaps[4][MAP_UNITS][MAP_UNITS_BIT];
     unsigned int numMaps;
     float battery;
     
@@ -221,13 +225,13 @@ struct Bot {
 /* static global variables/constants */
 static struct Bot bot = { .state=0 };
 static char posModifier[8][2] = {
-    {-1, -1},
-    {0, -1},
-    {1, -1},
-    {1, 0},
-    {1, 1},
-    {0, 1},
     {-1, 1},
+    {0, 1},
+    {1, 1},
+    {1, 0},
+    {1, -1},
+    {0, -1},
+    {-1, -1},
     {-1, 0}
 };
 static float sensorOffsets[US_SENSORS + 1] = { SENSOR_OFFSET, 0.0, -SENSOR_OFFSET, M_PI };
@@ -257,19 +261,20 @@ int I2C_Read(char periphAdd, char regAdd, char * data, int len);
 void Bot_Pos_Update();
 float Bot_InputPos_Update();
 void Bot_Map_Required();
-void Bot_Reinforce_Neighbors(struct Map * map);
+void Bot_Reinforce_Neighbors(struct BitMap * map);
 void Bot_Map_Update();
 void Bot_Optimise_Local();
 void Bot_Trigger_Ultrasonic();
 void Bot_Controller();
 //void Bot_Add_Instruction(float x, float y);
 void Bot_Display_Status();
-void Bot_Display_Map(struct Map * map);
+void Bot_Display_BitMap(struct BitMap * map);
+void Bot_Display_ProbMap(struct ProbMap * map);
 
 /* map functions */
-struct Map * Map_Initialize(float pos[2], char fillVal);
-void Map_Destroy(struct Map * map);
-char Map_Contains(struct Map * map, float * pos);
+struct BitMap * BitMap_Initialize(float pos[2]);
+char BitMap_Contains(struct BitMap * map, float * pos);
+struct ProbMap * ProbMap_Initialize(float pos[2], char fillVal);
 
 /* helper functions */
 float getAngle(float x1, float y1, float x2, float y2);

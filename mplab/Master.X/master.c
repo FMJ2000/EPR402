@@ -54,14 +54,10 @@ int main() {
     Init();
     UART_Write_String("Peripherals Initialized\r\n", 26);
     char whoami = IMU_Init();
-    bot.inputPos[0] = 0.0;
-    bot.inputPos[1] = 0.0;
-    bot.distances[3] = MAX_US_DIST;
     
-    //float startMap[2] = { -MAP_SIZE / 2, -MAP_SIZE / 2 };
-    //bot.currentMaps[0] = Map_Initialize(startMap, DEFAULT_VAL);
-    //Bot_Map_Required();
-    //Bot_Add_Instruction(1.0, 0.0);
+    float startMap[2] = { -MAP_SIZE / 2, MAP_SIZE / 2 };
+    bot.currentMap = BitMap_Initialize(startMap);
+    Bot_Map_Required();
     
     snprintf(bot.buf, 100, "IMU address: %d\r\n", whoami);
     UART_Write_String(bot.buf, strlen(bot.buf));
@@ -95,38 +91,7 @@ void Bot_Pos_Update() {
 	}
 	
 	case NAVIGATE: {
-	    /* NAVIGATE state: estimate next position with current trajectory 
-	    float vel[2] = { bot.duty[0] * VEL_MAX, bot.duty[1] * VEL_MAX };
-	    float dPos[3] = {0};
-	    float ePos[3];//, eSigma[3][3];
-
-	    memcpy(ePos, bot.pos, sizeof(float) * 3);
-	    //matrix_plus(3, eSigma, bot.sigma, bot.Q);
-
-	    if (vel[0] == vel[1]) {
-		// bot moving straight ahead
-		dPos[0] = vel[0] * DT * cos(bot.pos[2]);
-		dPos[1] = vel[1] * DT * sin(-bot.pos[2]);
-	    } else {
-		float radius = 0.0;
-		if (vel[0] > vel[1]) {
-		    // turning right
-		    radius = vel[1] / (vel[0] - vel[1]) * WHEEL_RADIUS;
-		    dPos[2] = (vel[0] * DT / (WHEEL_RADIUS + radius));
-		} else {
-		    // turning left
-		    radius = vel[0] / (vel[1] - vel[0]) * WHEEL_RADIUS;
-		    dPos[2] = -(vel[1] * DT / (WHEEL_RADIUS + radius));
-		}
-		float distance = 2 * (WHEEL_RADIUS + radius) * sin(fabs(dPos[2]) / 2.0);
-		ePos[2] += dPos[2];
-		dPos[0] = distance * cos(ePos[2]);
-		dPos[1] = distance * sin(-ePos[2]);
-	    }
-	    ePos[0] += dPos[0];
-	    ePos[1] += dPos[1];
-	     * */
-	    
+	    /* NAVIGATE state: estimate next position with current trajectory */	    
 	    float vel[2] = { bot.duty[0] * VEL_MAX, bot.duty[1] * VEL_MAX };
 	    float dPos[3] = {0}, ePos[3] = {0};
 	    dPos[0] = 0.5 * (cos(bot.pos[2]) * vel[0] + cos(bot.pos[2]) * vel[1]);
@@ -138,34 +103,16 @@ void Bot_Pos_Update() {
 	    
 	    /* estimate roation with gyroscope */
 	    float mPos[3] = {0.0, 0.0, bot.pos[2] + bot.imuData[2] * DT};
-	    float dc = (fabs(bot.duty[0]) + fabs(bot.duty[1])) / 2.0;
-	    
-	    /* estimate sensor measurements */
-	    //vel[0] = dPos[0] / DT;
-	    //vel[1] = dPos[1] / DT;
-	    //float eImuData[3] = { (vel[0] - bot.vel[0]) / DT, (vel[1] - bot.vel[1]) / DT, dPos[2] / 2.0 };
-	    //memcpy(bot.vel, vel, sizeof(float) * 2);
-
-	    /* fuse estimation with measurement 
-	    float K[3][3], inv_K[3][3], mMes[3][1];
-	    float dMes[3][1] = {
-		{bot.imuData[0] - eImuData[0] - bot.bias[0]},
-		{bot.imuData[1] - eImuData[1] - bot.bias[1]},
-		{bot.imuData[2] - eImuData[2] - bot.bias[2]}
-	    };
-	    matrix_plus(3, K, eSigma, bot.R);
-	    matrix_inv(inv_K, K);
-	    matrix_mul(3, 3, 3, K, eSigma, inv_K);
-	    matrix_mul(3, 1, 3, mMes, K, dMes); */
+	    float dc = 1;//(fabs(bot.duty[0]) + fabs(bot.duty[1])) / 2.0;
 
 	    bot.pos[0] = ePos[0];// + mMes[0][0];
 	    bot.pos[1] = ePos[1];// + mMes[0][1];
-	    bot.pos[2] = ePos[2];//(1 - dc * K_EST) * ePos[2] + dc * K_EST * mPos[2];
+	    bot.pos[2] = (1 - dc * K_EST) * ePos[2] + dc * K_EST * mPos[2];
 	    
-	    /* check if out of map bounds and turned too much 
-	    if ((fabs(bot.pos[2] - bot.dPos[2]) > SENSOR_OFFSET) || !Map_Contains(bot.currentMaps[0], bot.pos))
+	    /* check if out of map bounds and turned too much */
+	    if ((fabs(bot.pos[2] - bot.dPos[2]) > SENSOR_OFFSET) || !BitMap_Contains(bot.currentMap, bot.pos))
 		Bot_Map_Required();
-	    break;*/
+	    break;
 	}
     };
 }
@@ -226,75 +173,54 @@ void Bot_Trigger_Ultrasonic() {
 /* determine which maps will form part of supermap 
  * create maps if necessary */
 void Bot_Map_Required() {
-    if (!bot.mapChangeLock) {
-	/* save old maps and optimize */
-	Bot_Optimise_Local();
+    /* save old maps and optimize */
+    Bot_Optimise_Local();
 
-	/* update the current map based on the position of the bot */
-	if (!Map_Contains(bot.currentMaps[0], bot.pos)) {
-	    bot.mapChangeLock = 1;
-	    for (char i = 0; i < 8; i++) {
-		if (bot.currentMaps[0]->neighbors[i] && Map_Contains(bot.currentMaps[0]->neighbors[i], bot.pos)) {
-		    bot.currentMaps[0] = bot.currentMaps[0]->neighbors[i];
-		    for (char j = 1; j < 4; j++) bot.currentMaps[j] = NULL;
-		    break;
-		}
+    /* update the current map based on the position of the bot */
+    if (!BitMap_Contains(bot.currentMap, bot.pos)) {
+	for (char i = 0; i < 8; i++) {
+	    if (bot.currentMap->neighbors[i] && BitMap_Contains(bot.currentMap->neighbors[i], bot.pos)) {
+		bot.currentMap = bot.currentMap->neighbors[i];
+		break;
 	    }
 	}
-	
-	/* determine current map corner with smallest view angle */
-	memcpy(bot.dPos, bot.pos, sizeof(float) * 3);
-	float viewVec[2] = { bot.pos[0] + cos(bot.pos[2]), bot.pos[1] - sin(bot.pos[2]) };
-	float rect[4][2] = {
-	    {bot.currentMaps[0]->pos[0], bot.currentMaps[0]->pos[1]},
-	    {bot.currentMaps[0]->pos[0] + MAP_SIZE, bot.currentMaps[0]->pos[1]},
-	    {bot.currentMaps[0]->pos[0] + MAP_SIZE, bot.currentMaps[0]->pos[1] + MAP_SIZE},
-	    {bot.currentMaps[0]->pos[0], bot.currentMaps[0]->pos[1] + MAP_SIZE}
-	};
-	float minAngle = M_PI;
-	char minIndex = 0;
-	for (char i = 0; i < 4; i++) {
-	    float angle = getAngle(viewVec[0], viewVec[1], rect[i][0], rect[i][1]);
-	    if (angle < minAngle) {
-		minAngle = angle;
-		minIndex = i;
-	    }
-	}
-	
+    }
 
-	/* identify/create maps in corresponding direction */
-	char req[3] = {(2*minIndex + 7) % 8, 2*minIndex, (2*minIndex + 1) % 8};
-	for (char i = 0; i < 3; i++) {
-	    if (!bot.currentMaps[0]->neighbors[req[i]]) {
-		float pos[2] = { bot.currentMaps[0]->pos[0] + posModifier[req[i]][0] * MAP_SIZE, bot.currentMaps[0]->pos[1] + posModifier[req[i]][1] * MAP_SIZE };
-		struct Map * newMap = Map_Initialize(pos, DEFAULT_VAL);
-		bot.currentMaps[0]->neighbors[req[i]] = newMap;
-		newMap->neighbors[(req[i] + 4) % 8] = bot.currentMaps[0];
-		
-		Bot_Reinforce_Neighbors(newMap);
-	    }
-	    bot.currentMaps[i+1] = bot.currentMaps[0]->neighbors[req[i]];
+    /* determine current map corner with smallest view angle */
+    memcpy(bot.dPos, bot.pos, sizeof(float) * 3);
+    float viewVec[2] = { bot.pos[0] + cos(bot.pos[2]), bot.pos[1] + sin(bot.pos[2]) };
+    float rect[4][2] = {
+	{bot.currentMap->pos[0], bot.currentMap->pos[1]},
+	{bot.currentMap->pos[0] + MAP_SIZE, bot.currentMap->pos[1]},
+	{bot.currentMap->pos[0] + MAP_SIZE, bot.currentMap->pos[1] - MAP_SIZE},
+	{bot.currentMap->pos[0], bot.currentMap->pos[1] - MAP_SIZE}
+    };
+    float minAngle = M_PI;
+    char minIndex = 0;
+    for (char i = 0; i < 4; i++) {
+	float angle = getAngle(viewVec[0], viewVec[1], rect[i][0], rect[i][1]);
+	if (angle < minAngle) {
+	    minAngle = angle;
+	    minIndex = i;
 	}
+    }
 
-	/* copy current map to local map */
-	for (char i = 0; i < 4; i++) {
-	    if (!bot.localMaps[i]) bot.localMaps[i] = Map_Initialize(bot.currentMaps[i]->pos, DEFAULT_VAL);
-	    else {
-		memcpy(bot.localMaps[i]->pos, bot.currentMaps[i]->pos, sizeof(float) * 2);
-		/* nibble multiply back in global map */
-		for (char j = 0; j < MAP_UNITS; j++)
-		    for (char k = 0; k < MAP_UNITS; k++) {
-			bot.localMaps[i]->grid[j][k] = bot.currentMaps[i]->grid[j][k];
-			bot.localViewMaps[i][j][k] = 0;
-		    }
-	    }
+    /* identify/create bit and prob maps in corresponding direction */
+    bot.localMaps[0] = ProbMap_Initialize(bot.currentMap->pos, DEFAULT_VAL);
+    char req[3] = {(2*minIndex + 7) % 8, 2*minIndex, (2*minIndex + 1) % 8};
+    for (char i = 0; i < 3; i++) {
+	if (!bot.currentMap->neighbors[req[i]]) {
+	    float pos[2] = { bot.currentMap->pos[0] + posModifier[req[i]][0] * MAP_SIZE, bot.currentMap->pos[1] + posModifier[req[i]][1] * MAP_SIZE };
+	    struct BitMap * newMap = BitMap_Initialize(pos);
+	    bot.currentMap->neighbors[req[i]] = newMap;
+	    newMap->neighbors[(req[i] + 4) % 8] = bot.currentMap;
+	    Bot_Reinforce_Neighbors(newMap);
 	}
-
-	bot.mapChangeLock = 0;
+	bot.localMaps[i+1] = ProbMap_Initialize(bot.currentMap->neighbors[req[i]]->pos, DEFAULT_VAL);
     }
 }
 
-void Bot_Reinforce_Neighbors(struct Map * map) {    
+void Bot_Reinforce_Neighbors(struct BitMap * map) {    
     /* check if existing neighbor(s) has additional neighbors */
     for (char i = 0; i < 8; i++) {
 	if (map->neighbors[i]) {
@@ -331,7 +257,6 @@ void Bot_Reinforce_Neighbors(struct Map * map) {
 }
 
 void Bot_Map_Update() {
-    if (bot.usCount == 0) Bot_Map_Required();
     float obstaclePos[US_SENSORS][2];
     float valid[US_SENSORS] = {0};
     char numPos = distanceToPos(obstaclePos, valid, bot.distances);
@@ -340,17 +265,18 @@ void Bot_Map_Update() {
 	/* loop each local cell, check validity and modify */
 	float max = 0;
 	float probMap[4][MAP_UNITS][MAP_UNITS] = {{{0}}};
-	float viewVec[2] = { bot.pos[0] + cos(bot.pos[2]), bot.pos[1] - sin(bot.pos[2]) };
+	float viewVec[2] = { bot.pos[0] + cos(bot.pos[2]), bot.pos[1] + sin(bot.pos[2]) };
+	float angle, distance;
 	for (char i = 0; i < 4; i++) {
 	    for (char j = 0; j < MAP_UNITS; j++) {
 		for (char k = 0; k < MAP_UNITS; k++) {
-		    float pos[2] = { bot.localMaps[i]->pos[0] + MAP_RES * j, bot.localMaps[i]->pos[1] + MAP_RES * k };
+		    float pos[2] = { bot.localMaps[i]->pos[0] + MAP_RES * j, bot.localMaps[i]->pos[1] - MAP_RES * k };
 		    float posVec[2] = { pos[0] - bot.pos[0], pos[1] - bot.pos[1] };
-		    float angle = getAngle(viewVec[0], viewVec[1], posVec[0], posVec[1]);
-		    float distance = getDistance(pos[0], pos[1], bot.pos[0], bot.pos[1]);
+		    angle = atan2(posVec[1], posVec[0]) - atan2(viewVec[1], viewVec[0]);
+		    distance = getDistance(pos[0], pos[1], bot.pos[0], bot.pos[1]);
 		    
 		    /* make sure position is not behind reading */
-		    if (angle > -SENSOR_OFFSET && angle < SENSOR_OFFSET && distance > MIN_US_DIST) {
+		    if (angle > -SENSOR_OFFSET - SENSOR_ANGLE && angle < SENSOR_OFFSET + SENSOR_ANGLE && distance > MIN_US_DIST) {
 			char flag = 0;
 			for (char l = 0; l < US_SENSORS; l++) {
 			    if (angle > (sensorOffsets[l] - SENSOR_ANGLE) && angle < (sensorOffsets[l] + SENSOR_ANGLE)) {
@@ -360,7 +286,7 @@ void Bot_Map_Update() {
 			}
 		    
 			if (flag) {
-			    bot.localViewMaps[i][j][k] = bot.usCount + 1;
+			    bot.localViewMaps[i][j][k / 8] |= 0x1 << (k % 8);
 			    for (char l = 0; l < US_SENSORS; l++) {
 				if (valid[l]) probMap[i][j][k] += Multivariate_Gaussian(obstaclePos[l][0], obstaclePos[l][1], pos[0], pos[1]);
 			    }
@@ -375,7 +301,7 @@ void Bot_Map_Update() {
 	for (char i = 0; i < 4; i++) {
 	    for (char j = 0; j < MAP_UNITS; j++) {
 		for (char k = 0; k < MAP_UNITS; k++) {
-		    if (bot.localViewMaps[i][j][k] == bot.usCount + 1) {
+		    if (bot.localViewMaps[i][j][k / 8] & (0x1 << (k % 8))) {
 			char nibbleProb = (char)(probMap[i][j][k] * 16.0 / max);
 			bot.localMaps[i]->grid[j][k] = ((bot.localMaps[i]->grid[j][k] + nibbleProb) >> 1) & 0xF;
 		    }
@@ -390,12 +316,14 @@ void Bot_Map_Update() {
 
 void Bot_Optimise_Local() {
     /* save local map back to global */
-    for (char i = 0; i < 4; i++) {
-	if (bot.localMaps[i] && bot.currentMaps[i]) {
-	    for (char j = 0; j < MAP_UNITS; j++) {
-		for (char k = 0; k < MAP_UNITS; k++) {
-		    bot.currentMaps[i]->grid[j][k] = ((bot.currentMaps[i]->grid[j][k] + bot.localMaps[i]->grid[j][k]) >> 1) & 0xF;
+    if (bot.localMaps[0] && bot.currentMap) {
+	for (char i = 0; i < MAP_UNITS; i++) {
+	    for (char j = 0; j < MAP_UNITS_BIT; j++) {
+		char saveByte = 0x0;
+		for (char k = 0; k < 8; k++) {
+		    saveByte |= ((bot.localMaps[0]->grid[i][j] >> 3) & 0x1) << k;
 		}
+		bot.currentMap->grid[i][j] = saveByte;
 	    }
 	}
     }
@@ -419,7 +347,7 @@ void Bot_Controller() {
 	case NAVIGATE: {
 	    /* NAVIGATE state: determine duty cycle */
 	    float minDist = MAX_US_DIST;
-	    if (!bot.isTurning) minDist = Bot_InputPos_Update();
+	    //if (!bot.isTurning) minDist = Bot_InputPos_Update();
 	    
 	    /* navigate: obtain error angle and distance */
 	    float viewVec[2] = { bot.pos[0] + cos(bot.pos[2]), bot.pos[1] + sin(bot.pos[2]) };
@@ -458,14 +386,14 @@ void Bot_Controller() {
 		convDuty[0] = bot.duty[0];
 	    } else {
 		LATASET = _LATA_LATA3_MASK;
-		convDuty[0] = 1 - bot.duty[0];
+		convDuty[0] = 1 + bot.duty[0];
 	    }
 	    if (bot.duty[1] > 0) {
 		LATBCLR = _LATB_LATB4_MASK;
 		convDuty[1] = bot.duty[1];
 	    } else {
 		LATBSET = _LATB_LATB4_MASK;
-		convDuty[1] = 1 - bot.duty[1];
+		convDuty[1] = 1 + bot.duty[1];
 	    }
 	    break;
 	}
@@ -475,24 +403,14 @@ void Bot_Controller() {
     OC5RS = (int)(convDuty[1] * PWM_H);
 }
 
-/*
-void Bot_Add_Instruction(float x, float y) {
-    if ((bot.execIndex + INPUTQ_SIZE - 1) % INPUTQ_SIZE != bot.addIndex) {
-	bot.inputPosQueue[bot.addIndex][0] = x;
-	bot.inputPosQueue[bot.addIndex][1] = y;
-	bot.addIndex = (bot.addIndex + 1) % INPUTQ_SIZE;
-    }
-}
-*/
-
 void Bot_Display_Status() {
     float mapPos[4][2] = {{0}};
     for (char i = 0; i < 4; i++) {
-	if (bot.currentMaps[i]) memcpy(mapPos[i], bot.currentMaps[i], sizeof(float) * 2);
+	if (bot.localMaps[i]) memcpy(mapPos[i], bot.localMaps[i], sizeof(float) * 2);
     }
     
     snprintf(bot.buf, 100, "\33[2J\33[H(%ds) Bot state: %d, battery: %.2f%%\r\n", bot.time, bot.state, bot.battery);
-    //UART_Write_String(bot.buf, strlen(bot.buf));
+    UART_Write_String(bot.buf, strlen(bot.buf));
     snprintf(bot.buf, 100, "pos: (%.2f, %.2f, %.2f)\r\n", bot.pos[0], bot.pos[1], bot.pos[2] * 180.0 / M_PI);
     UART_Write_String(bot.buf, strlen(bot.buf));
     snprintf(bot.buf, 100, "input: (%.2f, %.2f)\r\n", bot.inputPos[0], bot.inputPos[1]);
@@ -505,54 +423,61 @@ void Bot_Display_Status() {
     UART_Write_String(bot.buf, strlen(bot.buf));
     snprintf(bot.buf, 100, "dist: (%.2f, %.2f, %.2f)\r\n", bot.distances[0], bot.distances[1], bot.distances[2]);
     UART_Write_String(bot.buf, strlen(bot.buf));
-    snprintf(bot.buf, 100, "numMaps: %d, current: (%.2f, %.2f), (%.2f, %.2f), (%.2f, %.2f), (%.2f, %.2f)\r\n", bot.numMaps,
+    snprintf(bot.buf, 100, "numMaps: %d, local: (%.2f, %.2f), (%.2f, %.2f), (%.2f, %.2f), (%.2f, %.2f)\r\n", bot.numMaps,
 	mapPos[0][0], mapPos[0][1], mapPos[1][0], mapPos[1][1], mapPos[2][0], mapPos[2][1], mapPos[3][0], mapPos[3][1]);
     UART_Write_String(bot.buf, strlen(bot.buf));
-    for (char i = 0; i < 4; i++) {
-	if (bot.currentMaps[i]) {
-	    snprintf(bot.buf, 100, "%d neighbors: %d, %d, %d, %d, %d, %d, %d, %d\r\n", i, bot.currentMaps[i]->neighbors[0], bot.currentMaps[i]->neighbors[1], bot.currentMaps[i]->neighbors[2], bot.currentMaps[i]->neighbors[3],
-		bot.currentMaps[i]->neighbors[4], bot.currentMaps[i]->neighbors[5], bot.currentMaps[i]->neighbors[6], bot.currentMaps[i]->neighbors[7]);
-	    UART_Write_String(bot.buf, strlen(bot.buf));
-	}
+}
+
+void Bot_Display_BitMap(struct BitMap * map) {
+    snprintf(bot.buf, 100, "\r\nBitMap pos: (%.2f, %.2f)\r\n", map->pos[0], map->pos[1]);
+    UART_Write_String(bot.buf, strlen(bot.buf));
+    for (char i = 0; i < MAP_UNITS; i++) {
+	snprintf(bot.buf, 100, "%d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d\r\n",
+	    map->grid[0][i] & 1, (map->grid[0][i] >> 1) & 1, (map->grid[0][i] >> 2) & 1, (map->grid[0][i] >> 3) & 1,
+	    (map->grid[0][i] >> 4) & 1, (map->grid[0][i] >> 5) & 1, (map->grid[0][i] >> 6) & 1, (map->grid[0][i] >> 7) & 1,
+	    map->grid[1][i] & 1, (map->grid[1][i] >> 1) & 1, (map->grid[1][i] >> 2) & 1, (map->grid[1][i] >> 3) & 1,
+	    (map->grid[1][i] >> 4) & 1, (map->grid[1][i] >> 5) & 1, (map->grid[1][i] >> 6) & 1, (map->grid[1][i] >> 7) & 1);
+	UART_Write_String(bot.buf, strlen(bot.buf));
     }
 }
 
-void Bot_Display_Map(struct Map * map) {
-    snprintf(bot.buf, 100, "\r\nMap pos: (%.2f, %.2f)\r\n", map->pos[0], map->pos[1]);
+void Bot_Display_ProbMap(struct ProbMap * map) {
+    snprintf(bot.buf, 100, "\r\nProbMap pos: (%.2f, %.2f)\r\n", map->pos[0], map->pos[1]);
     UART_Write_String(bot.buf, strlen(bot.buf));
     for (char i = 0; i < MAP_UNITS; i++) {
-	snprintf(bot.buf, 100, "%d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d\r\n",
-	    map->grid[0][i], map->grid[1][i], map->grid[2][i], map->grid[3][i], map->grid[4][i],
-	    map->grid[5][i], map->grid[6][i], map->grid[7][i], map->grid[8][i], map->grid[9][i],
-	    map->grid[10][i], map->grid[11][i], map->grid[12][i], map->grid[13][i], map->grid[14][i],
-	    map->grid[15][i], map->grid[16][i], map->grid[17][i], map->grid[18][i], map->grid[19][i]);
+	snprintf(bot.buf, 100, "%d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d\r\n",
+	    map->grid[0][i], map->grid[1][i], map->grid[2][i], map->grid[3][i],
+	    map->grid[4][i], map->grid[5][i], map->grid[6][i], map->grid[7][i],
+	    map->grid[8][i], map->grid[9][i], map->grid[10][i], map->grid[11][i],
+	    map->grid[12][i], map->grid[13][i], map->grid[14][i], map->grid[15][i]);
 	UART_Write_String(bot.buf, strlen(bot.buf));
     }
 }
 
 /* map functions */
-struct Map * Map_Initialize(float pos[2], char fillVal) {
-    struct Map * map = malloc(sizeof(struct Map));
+struct BitMap * BitMap_Initialize(float pos[2]) {
+    struct BitMap * map = malloc(sizeof(struct BitMap));
     memcpy(map->pos, pos, sizeof(float) * 2);
     for (char i = 0; i < 8; i++) map->neighbors[i] = NULL;
+    for (char i = 0; i < MAP_UNITS_BIT; i++)
+	for (char j = 0; j < MAP_UNITS_BIT; j++)
+	    map->grid[i][j] = 0xF;
+    bot.numMaps++;
+    return map;
+}
+
+struct ProbMap * ProbMap_Initialize(float pos[2], char fillVal) {
+    struct ProbMap * map = malloc(sizeof(struct ProbMap));
+    memcpy(map->pos, pos, sizeof(float) * 2);
     for (char i = 0; i < MAP_UNITS; i++)
 	for (char j = 0; j < MAP_UNITS; j++)
 	    map->grid[i][j] = fillVal;
     return map;
 }
 
-void Map_Destroy(struct Map * map) {
-    if (map != NULL) {
-	//free(map->neighbors);
-	free(map);
-	map = NULL;
-    }
-    bot.numMaps--;
-}
-
-char Map_Contains(struct Map * map, float * pos) {
+char BitMap_Contains(struct BitMap * map, float * pos) {
     float xRange[2] = { map->pos[0], map->pos[0] + MAP_SIZE };
-    float yRange[2] = { map->pos[1], map->pos[1] + MAP_SIZE };
+    float yRange[2] = { map->pos[1] - MAP_SIZE, map->pos[1] };
     return ((pos[0] > xRange[0]) && (pos[0] < xRange[1]) && (pos[1] > yRange[0]) && (pos[1] < yRange[1]));
 }
 
@@ -566,7 +491,7 @@ void __ISR(_TIMER_2_VECTOR, IPL2SOFT) TMR2_IntHandler() {
     
     /* check if all readings taken, update map */
     if (bot.usState == US_SENSORS - 1) {
-	//Bot_Map_Update();
+	Bot_Map_Update();
     }
 }
 
@@ -575,17 +500,16 @@ void __ISR(_TIMER_4_VECTOR, IPL2SOFT) TMR4_IntHandler() {
     IFS0CLR = _IFS0_T4IF_MASK;
     
     Bot_Pos_Update();
-    if (bot.count % 2) {
-	Bot_Trigger_Ultrasonic();
-    }
-    Bot_Controller();
+    if (bot.count % 3) Bot_Trigger_Ultrasonic();
+    //Bot_Controller();
     
     bot.count = (bot.count + 1) % 10;//(int)FREQ;
     if (bot.count == 0) {
 	bot.time++;
 	AD1CON1SET = _AD1CON1_SAMP_MASK;
 	Bot_Display_Status();
-	//Bot_Display_Map(bot.currentMaps[0]);
+	/*Bot_Display_BitMap(bot.currentMap); */
+	Bot_Display_ProbMap(bot.localMaps[0]);
     }
 }
 
