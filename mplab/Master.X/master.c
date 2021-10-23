@@ -176,23 +176,25 @@ float Bot_InputPos_Update() {
     float minDist = bot.distances[0];
     if (distance < MIN_DIST || bot.distances[0] < MIN_OBST_DIST || bot.distances[1] < MIN_OBST_DIST || bot.distances[2] < MIN_OBST_DIST) {
 	float distances[3][1] = {{bot.distances[0]}, {bot.distances[1]}, {bot.distances[2]}};
-	float cmu[4][1];
+	float cmu[3][1];
 	matrix_mul(3, 1, 3, cmu, sensorModifier, distances);
-	cmu[3][0] = cmu[0][0];
+	//cmu[3][0] = cmu[0][0];
 	char mu = 0;
-	float muMax = powf(cmu[0][0], 2);
-	for (char i = 1; i < 4; i++) {
-	    if (i < 3) cmu[3][0] += powf(cmu[i][0], 2);
-	    else cmu[3][0] = 2.0 / cmu[3][0];
+	float muMax = cmu[0][0];
+	for (char i = 1; i < 3; i++) {
+	    /*if (i < 3) cmu[3][0] += cmu[i][0];
+	    else cmu[3][0] = 2.0 / cmu[3][0];*/
 	    if (cmu[i][0] > muMax) {
 		muMax = cmu[i][0];
 		mu = i;
 	    }
 	    if (bot.distances[i] < minDist) minDist = bot.distances[i];
 	}
-	float angle = Box_Muller(sensorOffsets[mu], 1.0 / (1.0 + muMax));
-	bot.inputPos[0] = bot.pos[0] + 2 * bot.distances[mu] * cos(bot.pos[2] + angle);
-	bot.inputPos[1] = bot.pos[1] + 2 * bot.distances[mu] * sin(bot.pos[2] + angle);
+	float angle = (mu - 1) * muMax / 10.0;//Box_Muller(sensorOffsets[mu], 1.0 / (1.0 + muMax));
+	snprintf(bot.buf, 100, "cmu: (%.2f, %.2f, %.2f, %.2f), mu: %d, muMax: %.2f, angle: %.2f\r\n", cmu[0][0], cmu[1][0], cmu[2][0], cmu[3][0], mu, muMax, angle);
+	UART_Write_String(bot.buf, strlen(bot.buf));
+	bot.inputPos[0] = bot.pos[0] + 2 * bot.distances[mu] * cos(bot.pos[2] - angle);
+	bot.inputPos[1] = bot.pos[1] + 2 * bot.distances[mu] * sin(bot.pos[2] - angle);
     }
     return minDist;
 }
@@ -416,7 +418,8 @@ void Bot_Controller() {
 	
 	case NAVIGATE: {
 	    /* NAVIGATE state: determine duty cycle */
-	    float minDist = Bot_InputPos_Update();
+	    float minDist = MAX_US_DIST;
+	    if (!bot.isTurning) minDist = Bot_InputPos_Update();
 	    
 	    /* navigate: obtain error angle and distance */
 	    float viewVec[2] = { bot.pos[0] + cos(bot.pos[2]), bot.pos[1] + sin(bot.pos[2]) };
@@ -430,9 +433,11 @@ void Bot_Controller() {
 	    float newDuty[2] = {0};
 
 	    if (fabs(bot.ePos[2]) > ERROR_MAX) {
+		bot.isTurning = 1;
 		newDuty[0] = rotSign * -maxTurn / K_TURN;
 		newDuty[1] = rotSign * maxTurn / K_TURN;
 	    } else {
+		bot.isTurning = 0;
 		float maxSpeed = distance / (ALPHA + distance);
 		newDuty[0] = maxSpeed / 2.0 + rotSign * -maxTurn;
 		newDuty[1] = maxSpeed / 2.0 + rotSign * maxTurn;
@@ -487,7 +492,7 @@ void Bot_Display_Status() {
     }
     
     snprintf(bot.buf, 100, "\33[2J\33[H(%ds) Bot state: %d, battery: %.2f%%\r\n", bot.time, bot.state, bot.battery);
-    UART_Write_String(bot.buf, strlen(bot.buf));
+    //UART_Write_String(bot.buf, strlen(bot.buf));
     snprintf(bot.buf, 100, "pos: (%.2f, %.2f, %.2f)\r\n", bot.pos[0], bot.pos[1], bot.pos[2] * 180.0 / M_PI);
     UART_Write_String(bot.buf, strlen(bot.buf));
     snprintf(bot.buf, 100, "input: (%.2f, %.2f)\r\n", bot.inputPos[0], bot.inputPos[1]);

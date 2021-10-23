@@ -144,7 +144,7 @@
 
 #define PWM_T 0xFFF
 #define PWM_H 0x7FF                     // normal full speed
-#define VEL_MAX 0.3                     // maximum speed (m/s) if duty 100%
+#define VEL_MAX 0.55                     // maximum speed (m/s) if duty 100%
 #define WHEEL_DIAMETER 0.22
 #define WHEEL_RADIUS 0.03
 #define CHASSIS_LENGTH 0.15
@@ -155,7 +155,7 @@
 #define K_TURN 1.5
 #define ERROR_MAX 30. * M_PI / 180.
 #define MIN_DIST 0.08
-#define MIN_OBST_DIST 0.2
+#define MIN_OBST_DIST 0.08
 #define MIN_US_DIST 0.03                // minimum distance visible
 #define MAX_US_DIST 0.6
 #define MIN_PWM 0.1
@@ -197,6 +197,7 @@ struct Bot {
     float imuData[3];           // accX, accY, gyroZ
     float bias[3];
     unsigned int numBias;
+    char isTurning;
     
     /* mapping */
     char usState;
@@ -231,9 +232,9 @@ static char posModifier[8][2] = {
 };
 static float sensorOffsets[US_SENSORS + 1] = { SENSOR_OFFSET, 0.0, -SENSOR_OFFSET, M_PI };
 static float sensorModifier[US_SENSORS][US_SENSORS] = { 
-    {3, -1, -1},
-    {-1, 5, -1},
-    {-1, -1, 3}
+    {3, 1, -3},
+    {0.5, 1, 0.5},
+    {-3, 1, 3}
 };
 
 /* peripheral defintions */
