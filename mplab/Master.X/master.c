@@ -41,20 +41,27 @@
 #pragma config BWP = OFF                // Boot Flash Write Protect bit (Protection Disabled)
 #pragma config CP = OFF                 // Code Protect (Protection Disabled)
 
+#include <math.h>
+
 #include "master.h"
 
 int main() {
+    srand(PORTB);
+    
     long delay = 640000l;
     while (delay--);
     
     Init();
     UART_Write_String("Peripherals Initialized\r\n", 26);
     char whoami = IMU_Init();
+    bot.inputPos[0] = 0.0;
+    bot.inputPos[1] = 0.0;
+    bot.distances[3] = MAX_US_DIST;
     
-    float startMap[2] = { -MAP_SIZE / 2, -MAP_SIZE / 2 };
-    bot.currentMaps[0] = Map_Initialize(startMap, DEFAULT_VAL);
-    Bot_Map_Required();
-    Bot_Add_Instruction(1.0, 0.0);
+    //float startMap[2] = { -MAP_SIZE / 2, -MAP_SIZE / 2 };
+    //bot.currentMaps[0] = Map_Initialize(startMap, DEFAULT_VAL);
+    //Bot_Map_Required();
+    //Bot_Add_Instruction(1.0, 0.0);
     
     snprintf(bot.buf, 100, "IMU address: %d\r\n", whoami);
     UART_Write_String(bot.buf, strlen(bot.buf));
@@ -88,7 +95,7 @@ void Bot_Pos_Update() {
 	}
 	
 	case NAVIGATE: {
-	    /* NAVIGATE state: estimate next position with current trajectory */
+	    /* NAVIGATE state: estimate next position with current trajectory 
 	    float vel[2] = { bot.duty[0] * VEL_MAX, bot.duty[1] * VEL_MAX };
 	    float dPos[3] = {0};
 	    float ePos[3];//, eSigma[3][3];
@@ -118,16 +125,26 @@ void Bot_Pos_Update() {
 	    }
 	    ePos[0] += dPos[0];
 	    ePos[1] += dPos[1];
+	     * */
+	    
+	    float vel[2] = { bot.duty[0] * VEL_MAX, bot.duty[1] * VEL_MAX };
+	    float dPos[3] = {0}, ePos[3] = {0};
+	    dPos[0] = 0.5 * (cos(bot.pos[2]) * vel[0] + cos(bot.pos[2]) * vel[1]);
+	    dPos[1] = 0.5 * (sin(bot.pos[2]) * vel[0] + sin(bot.pos[2]) * vel[1]);
+	    dPos[2] = vel[1] / CHASSIS_LENGTH - vel[0] / CHASSIS_LENGTH;
+	    ePos[0] = bot.pos[0] + dPos[0] * DT;
+	    ePos[1] = bot.pos[1] + dPos[1] * DT;
+	    ePos[2] = bot.pos[2] + dPos[2] * DT;
 	    
 	    /* estimate roation with gyroscope */
 	    float mPos[3] = {0.0, 0.0, bot.pos[2] + bot.imuData[2] * DT};
 	    float dc = (fabs(bot.duty[0]) + fabs(bot.duty[1])) / 2.0;
 	    
 	    /* estimate sensor measurements */
-	    vel[0] = dPos[0] / DT;
-	    vel[1] = dPos[1] / DT;
+	    //vel[0] = dPos[0] / DT;
+	    //vel[1] = dPos[1] / DT;
 	    //float eImuData[3] = { (vel[0] - bot.vel[0]) / DT, (vel[1] - bot.vel[1]) / DT, dPos[2] / 2.0 };
-	    memcpy(bot.vel, vel, sizeof(float) * 2);
+	    //memcpy(bot.vel, vel, sizeof(float) * 2);
 
 	    /* fuse estimation with measurement 
 	    float K[3][3], inv_K[3][3], mMes[3][1];
@@ -143,14 +160,41 @@ void Bot_Pos_Update() {
 
 	    bot.pos[0] = ePos[0];// + mMes[0][0];
 	    bot.pos[1] = ePos[1];// + mMes[0][1];
-	    bot.pos[2] = (1 - dc * K_EST) * ePos[2] + dc * K_EST * mPos[2];
+	    bot.pos[2] = ePos[2];//(1 - dc * K_EST) * ePos[2] + dc * K_EST * mPos[2];
 	    
-	    /* check if out of map bounds and turned too much */
+	    /* check if out of map bounds and turned too much 
 	    if ((fabs(bot.pos[2] - bot.dPos[2]) > SENSOR_OFFSET) || !Map_Contains(bot.currentMaps[0], bot.pos))
 		Bot_Map_Required();
-	    break;
+	    break;*/
 	}
     };
+}
+
+float Bot_InputPos_Update() {
+    /* check if new position necessary */
+    float distance = getDistance(bot.inputPos[0], bot.inputPos[1], bot.pos[0], bot.pos[1]);
+    float minDist = bot.distances[0];
+    if (distance < MIN_DIST || bot.distances[0] < MIN_OBST_DIST || bot.distances[1] < MIN_OBST_DIST || bot.distances[2] < MIN_OBST_DIST) {
+	float distances[3][1] = {{bot.distances[0]}, {bot.distances[1]}, {bot.distances[2]}};
+	float cmu[4][1];
+	matrix_mul(3, 1, 3, cmu, sensorModifier, distances);
+	cmu[3][0] = cmu[0][0];
+	char mu = 0;
+	float muMax = powf(cmu[0][0], 2);
+	for (char i = 1; i < 4; i++) {
+	    if (i < 3) cmu[3][0] += powf(cmu[i][0], 2);
+	    else cmu[3][0] = 2.0 / cmu[3][0];
+	    if (cmu[i][0] > muMax) {
+		muMax = cmu[i][0];
+		mu = i;
+	    }
+	    if (bot.distances[i] < minDist) minDist = bot.distances[i];
+	}
+	float angle = Box_Muller(sensorOffsets[mu], 1.0 / (1.0 + muMax));
+	bot.inputPos[0] = bot.pos[0] + 2 * bot.distances[mu] * cos(bot.pos[2] + angle);
+	bot.inputPos[1] = bot.pos[1] + 2 * bot.distances[mu] * sin(bot.pos[2] + angle);
+    }
+    return minDist;
 }
 
 void Bot_Trigger_Ultrasonic() { 
@@ -316,7 +360,7 @@ void Bot_Map_Update() {
 			if (flag) {
 			    bot.localViewMaps[i][j][k] = bot.usCount + 1;
 			    for (char l = 0; l < US_SENSORS; l++) {
-				if (valid[l]) probMap[i][j][k] += multivariateGaussian(obstaclePos[l][0], obstaclePos[l][1], pos[0], pos[1]);
+				if (valid[l]) probMap[i][j][k] += Multivariate_Gaussian(obstaclePos[l][0], obstaclePos[l][1], pos[0], pos[1]);
 			    }
 			    if (max < probMap[i][j][k]) max = probMap[i][j][k];
 			}
@@ -365,64 +409,58 @@ void Bot_Controller() {
 		bot.duty[i] = 0.0;
 		convDuty[i] = 0.0;
 	    }
+	    LATBCLR = _LATB_LATB4_MASK;
+	    LATACLR = _LATA_LATA3_MASK;
 	    break;
 	}
 	
 	case NAVIGATE: {
 	    /* NAVIGATE state: determine duty cycle */
+	    float minDist = Bot_InputPos_Update();
+	    
 	    /* navigate: obtain error angle and distance */
-	    float viewVec[2] = { bot.pos[0] + cos(bot.pos[2]), bot.pos[1] - sin(bot.pos[2]) };
-	    float inputVec[2] = { bot.inputPosQueue[bot.execIndex][0] - bot.pos[0], bot.inputPosQueue[bot.execIndex][1] - bot.pos[1] };
-	    float angle = getAngle(viewVec[0], viewVec[1], inputVec[0], inputVec[1]);
-	    float distance = getDistance(bot.inputPosQueue[bot.execIndex][0], bot.inputPosQueue[bot.execIndex][1], bot.pos[0], bot.pos[1]);
+	    float viewVec[2] = { bot.pos[0] + cos(bot.pos[2]), bot.pos[1] + sin(bot.pos[2]) };
+	    float inputVec[2] = { bot.inputPos[0] - bot.pos[0], bot.inputPos[1] - bot.pos[1] };
+	    bot.ePos[2] = atan2(inputVec[1], inputVec[0]) - atan2(viewVec[1], viewVec[0]);
+	    float distance = getDistance(bot.inputPos[0], bot.inputPos[1], bot.pos[0], bot.pos[1]);
+	    if (minDist < distance) distance = minDist;
     
-	    if (distance > MIN_DIST) {// && bot.distances[0] > MIN_DIST && bot.distances[1] > MIN_DIST && bot.distances[2] > MIN_DIST) {
-		float ePos[3] = {0};
-		ePos[2] = angle - bot.pos[2];
-		float rotSign = (ePos[2] < 0.0) ? -1.0 : 1.0;
-		float maxTurn = fabs(ePos[2]) / (BETA + fabs(ePos[2]));
-		float newDuty[2] = {0};
+	    float rotSign = (bot.ePos[2] < 0.0) ? -1.0 : 1.0;
+	    float maxTurn = fabs(bot.ePos[2]) / (BETA + fabs(bot.ePos[2]));
+	    float newDuty[2] = {0};
 
-		if (fabs(ePos[2]) > ERROR_MAX) {
-		    newDuty[0] = rotSign * maxTurn / K_TURN;
-		    newDuty[1] = rotSign * -maxTurn / K_TURN;
-		} else {
-		    float maxSpeed = distance / (ALPHA + distance);
-		    newDuty[0] = maxSpeed / 2.0 + rotSign * maxTurn;
-		    newDuty[1] = maxSpeed / 2.0 + rotSign * -maxTurn;
-		}
-
-		for (int i = 0; i < 2; i++) {
-		    /* set new duty cycles */
-		    if (newDuty[i] < bot.duty[i] - GAMMA) bot.duty[i] -= GAMMA;
-		    else if (newDuty[i] > bot.duty[i] + GAMMA) bot.duty[i] += GAMMA;
-		    //else if (fabs(newDuty[i]) < MIN_PWM) bot.duty[i] = 0.0;
-		    else bot.duty[i] = newDuty[i];
-		}
-
-
-		/* negative duty cycles should reverse rotation */
-		if (bot.duty[0] > 0) {
-		    LATACLR = _LATA_LATA3_MASK;
-		    convDuty[0] = bot.duty[0];
-		} else {
-		    LATASET = _LATA_LATA3_MASK;
-		    convDuty[0] = 1 + bot.duty[0];
-		}
-		if (bot.duty[1] > 0) {
-		    LATBCLR = _LATB_LATB4_MASK;
-		    convDuty[1] = bot.duty[1];
-		} else {
-		    LATBSET = _LATB_LATB4_MASK;
-		    convDuty[1] = 1 + bot.duty[1];
-		}
+	    if (fabs(bot.ePos[2]) > ERROR_MAX) {
+		newDuty[0] = rotSign * -maxTurn / K_TURN;
+		newDuty[1] = rotSign * maxTurn / K_TURN;
 	    } else {
-		/* reached desired location */
-		for (int i = 0; i < 2; i++) {
-		    bot.duty[i] = 0.0;
-		    convDuty[i] = 0.0;
-		}
-		//bot.state = IDLE;
+		float maxSpeed = distance / (ALPHA + distance);
+		newDuty[0] = maxSpeed / 2.0 + rotSign * -maxTurn;
+		newDuty[1] = maxSpeed / 2.0 + rotSign * maxTurn;
+	    }
+
+	    for (int i = 0; i < 2; i++) {
+		/* set new duty cycles */
+		if (newDuty[i] < bot.duty[i] - GAMMA) bot.duty[i] -= GAMMA;
+		else if (newDuty[i] > bot.duty[i] + GAMMA) bot.duty[i] += GAMMA;
+		//else if (fabs(newDuty[i]) < MIN_PWM) bot.duty[i] = 0.0;
+		else bot.duty[i] = newDuty[i];
+	    }
+
+
+	    /* negative duty cycles should reverse rotation */
+	    if (bot.duty[0] > 0) {
+		LATACLR = _LATA_LATA3_MASK;
+		convDuty[0] = bot.duty[0];
+	    } else {
+		LATASET = _LATA_LATA3_MASK;
+		convDuty[0] = 1 - bot.duty[0];
+	    }
+	    if (bot.duty[1] > 0) {
+		LATBCLR = _LATB_LATB4_MASK;
+		convDuty[1] = bot.duty[1];
+	    } else {
+		LATBSET = _LATB_LATB4_MASK;
+		convDuty[1] = 1 - bot.duty[1];
 	    }
 	    break;
 	}
@@ -432,6 +470,7 @@ void Bot_Controller() {
     OC5RS = (int)(convDuty[1] * PWM_H);
 }
 
+/*
 void Bot_Add_Instruction(float x, float y) {
     if ((bot.execIndex + INPUTQ_SIZE - 1) % INPUTQ_SIZE != bot.addIndex) {
 	bot.inputPosQueue[bot.addIndex][0] = x;
@@ -439,6 +478,7 @@ void Bot_Add_Instruction(float x, float y) {
 	bot.addIndex = (bot.addIndex + 1) % INPUTQ_SIZE;
     }
 }
+*/
 
 void Bot_Display_Status() {
     float mapPos[4][2] = {{0}};
@@ -450,9 +490,9 @@ void Bot_Display_Status() {
     UART_Write_String(bot.buf, strlen(bot.buf));
     snprintf(bot.buf, 100, "pos: (%.2f, %.2f, %.2f)\r\n", bot.pos[0], bot.pos[1], bot.pos[2] * 180.0 / M_PI);
     UART_Write_String(bot.buf, strlen(bot.buf));
-    snprintf(bot.buf, 100, "vel: (%.2f, %.2f)\r\n", bot.vel[0], bot.vel[1]);
+    snprintf(bot.buf, 100, "input: (%.2f, %.2f)\r\n", bot.inputPos[0], bot.inputPos[1]);
     UART_Write_String(bot.buf, strlen(bot.buf));
-    snprintf(bot.buf, 100, "input: (%.2f, %.2f)\r\n", bot.inputPosQueue[bot.execIndex][0], bot.inputPosQueue[bot.execIndex][1]);
+    snprintf(bot.buf, 100, "error: (%.2f, %.2f, %.2f)\r\n", bot.ePos[0], bot.ePos[1], bot.ePos[2] * 180.0 / M_PI);
     UART_Write_String(bot.buf, strlen(bot.buf));
     snprintf(bot.buf, 100, "duty: (%.2f, %.2f)\r\n", bot.duty[0], bot.duty[1]);
     UART_Write_String(bot.buf, strlen(bot.buf));    
@@ -517,10 +557,11 @@ char Map_Contains(struct Map * map, float * pos) {
 void __ISR(_TIMER_2_VECTOR, IPL2SOFT) TMR2_IntHandler() {
     IFS0CLR = _IFS0_T2IF_MASK;
     bot.distances[bot.usState] = (float)TMR2 * SOUND_SPEED;
+    if (bot.distances[bot.usState] > MAX_US_DIST || bot.distances[bot.usState] < MIN_US_DIST) bot.distances[bot.usState] = MAX_US_DIST;
     
     /* check if all readings taken, update map */
     if (bot.usState == US_SENSORS - 1) {
-	Bot_Map_Update();
+	//Bot_Map_Update();
     }
 }
 
@@ -529,7 +570,9 @@ void __ISR(_TIMER_4_VECTOR, IPL2SOFT) TMR4_IntHandler() {
     IFS0CLR = _IFS0_T4IF_MASK;
     
     Bot_Pos_Update();
-    Bot_Trigger_Ultrasonic();
+    if (bot.count % 2) {
+	Bot_Trigger_Ultrasonic();
+    }
     Bot_Controller();
     
     bot.count = (bot.count + 1) % 10;//(int)FREQ;
@@ -537,7 +580,7 @@ void __ISR(_TIMER_4_VECTOR, IPL2SOFT) TMR4_IntHandler() {
 	bot.time++;
 	AD1CON1SET = _AD1CON1_SAMP_MASK;
 	Bot_Display_Status();
-	Bot_Display_Map(bot.currentMaps[0]);
+	//Bot_Display_Map(bot.currentMaps[0]);
     }
 }
 
@@ -808,10 +851,17 @@ char distanceToPos(float pos[][2], float * valid, float * distances) {
     return index;
 }
 
-char multivariateGaussian(float meanX, float meanY, float posX, float posY) {
+char Multivariate_Gaussian(float meanX, float meanY, float posX, float posY) {
     float devX = (posX - meanX) / US_SIGMA;
     float devY = (posY - meanY) / US_SIGMA;
     return 1 / (2*M_PI * US_SIGMA * US_SIGMA) * exp(-0.5 * (powf(devX, 2) + powf(devY, 2)));
+}
+
+float Box_Muller(float mu, float sigma) {
+    float u1 = (float)rand() / RAND_MAX;
+    float u2 = (float)rand() / RAND_MAX;
+    float z0 = sqrt(-2*log(u1)) * cos(2*M_PI*u2);
+    return z0*sigma + mu;
 }
 
 /*
@@ -821,7 +871,7 @@ void matrix_plus(int len, float result[][len], float mat1[][len], float ma6t2[][
 	    result[i][j] = mat1[i][j] + mat2[i][j];
 	}
     }
-}
+} */
 
 void matrix_mul( int nRows,  int nCols, int nAdd, float result[][nCols], float mat1[][nAdd], float mat2[][nCols]) {
     for (int i = 0; i < nRows; i++) {

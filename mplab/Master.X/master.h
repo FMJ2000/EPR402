@@ -144,16 +144,18 @@
 
 #define PWM_T 0xFFF
 #define PWM_H 0x7FF                     // normal full speed
-#define VEL_MAX 0.55                     // maximum speed (m/s) if duty 100%
+#define VEL_MAX 0.3                     // maximum speed (m/s) if duty 100%
 #define WHEEL_DIAMETER 0.22
 #define WHEEL_RADIUS 0.03
+#define CHASSIS_LENGTH 0.15
 #define ALPHA 0.1
-#define BETA M_PI
+#define BETA M_PI / 2.0
 #define GAMMA 0.1   
 #define K_EST 0.8
-#define K_TURN 5.0
-#define ERROR_MAX 0.7854                // 45 degrees
-#define MIN_DIST 0.05
+#define K_TURN 1.5
+#define ERROR_MAX 30. * M_PI / 180.
+#define MIN_DIST 0.08
+#define MIN_OBST_DIST 0.2
 #define MIN_US_DIST 0.03                // minimum distance visible
 #define MAX_US_DIST 0.6
 #define MIN_PWM 0.1
@@ -162,6 +164,7 @@
 #define INPUTQ_SIZE 50
 #define ADC_SCALE 4.54
 #define ADC_OFFSET 170
+#define DIST_CORR_OFFSET 0.03
 
 #define US_TRIG_T 640                   // ultrasonic trigger
 #define US_SENSORS 3
@@ -186,10 +189,10 @@ struct Bot {
     unsigned long time;
     float pos[3];               // x, y, rot
     float dPos[3];              // pos at last map update
-    float inputPosQueue[INPUTQ_SIZE][2];
+    float inputPos[2];
     unsigned int execIndex;
     unsigned int addIndex;
-    float vel[2];
+    float ePos[3];              // pid error
     float duty[2];
     float imuData[3];           // accX, accY, gyroZ
     float bias[3];
@@ -198,7 +201,7 @@ struct Bot {
     /* mapping */
     char usState;
     char usCount;
-    float distances[3];
+    float distances[4];
     char mapChangeLock;
     struct Map * currentMaps[4];            // current map bot is in [0] and directional adjunctions [1-3]
     struct Map * localMaps[4];              // modifiable copies in between samples
@@ -226,7 +229,12 @@ static char posModifier[8][2] = {
     {-1, 1},
     {-1, 0}
 };
-static float sensorOffsets[US_SENSORS] = { SENSOR_OFFSET, 0.0, -SENSOR_OFFSET };
+static float sensorOffsets[US_SENSORS + 1] = { SENSOR_OFFSET, 0.0, -SENSOR_OFFSET, M_PI };
+static float sensorModifier[US_SENSORS][US_SENSORS] = { 
+    {3, -1, -1},
+    {-1, 5, -1},
+    {-1, -1, 3}
+};
 
 /* peripheral defintions */
 void Init();
@@ -246,13 +254,14 @@ int I2C_Read(char periphAdd, char regAdd, char * data, int len);
 
 /* bot functions */
 void Bot_Pos_Update();
+float Bot_InputPos_Update();
 void Bot_Map_Required();
 void Bot_Reinforce_Neighbors(struct Map * map);
 void Bot_Map_Update();
 void Bot_Optimise_Local();
 void Bot_Trigger_Ultrasonic();
 void Bot_Controller();
-void Bot_Add_Instruction(float x, float y);
+//void Bot_Add_Instruction(float x, float y);
 void Bot_Display_Status();
 void Bot_Display_Map(struct Map * map);
 
@@ -265,10 +274,13 @@ char Map_Contains(struct Map * map, float * pos);
 float getAngle(float x1, float y1, float x2, float y2);
 float getDistance(float x1, float y1, float x2, float y2);
 char distanceToPos(float pos[][2], float * valid, float * distances);
-char multivariateGaussian(float meanX, float meanY, float posX, float posY);
+char Multivariate_Gaussian(float meanX, float meanY, float posX, float posY);
+float Box_Muller(float mu, float sigma);
+
+void matrix_mul( int nRows,  int nCols, int nAdd, float result[][nCols], float mat1[][nAdd], float mat2[][nCols]);
 /*
 void matrix_plus(int len, float result[][len], float mat1[][len], float mat2[][len]);
-void matrix_mul( int nRows,  int nCols, int nAdd, float result[][nCols], float mat1[][nAdd], float mat2[][nCols]);
+
 void matrix_inv(float result[3][3], float mat[3][3]);
 */
 
