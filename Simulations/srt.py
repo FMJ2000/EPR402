@@ -32,8 +32,10 @@ def pseudo_multinomial(mu=[0], sigma=[1], size=1):
 		Z0 = np.concatenate((Z0, pseudo_normal(mu=mu[i], sigma=sigma[i], size=int(size/len(mu)))))
 	return Z0
 
-s = pseudo_multinomial(mu=[0, 10, 20, 30, 40, 50, 60, 70], sigma=[5, 2, 5, 2, 5, 2, 5, 2], size=10000)
-print(s)
+#s = pseudo_multinomial(mu=[0, 10, 20, 30, 40, 50, 60, 70], sigma=[5, 2, 5, 2, 5, 2, 5, 2], size=10000)
+#print(s)
+
+s = pseudo_normal(mu=0, sigma=15, size=10000)
 plt.hist(s, bins=40, edgecolor='k')
 plt.xticks(fontsize=15)
 plt.yticks(fontsize=15)
