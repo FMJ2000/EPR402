@@ -56,7 +56,7 @@
 #define TEMP_OFFSET 25
 #define IMU_RES 32768.0
 
-void IMU_Init(struct Bot * bot, uint8_t whoami[2]);
-void IMU_Read(float result[9], float asa[3]);
+void IMU_Init(float asa[3], uint8_t whoami[2]);
+void IMU_Read(float gyro[3], float acc[3], float mag[3], float asa[3]);
 
 #endif

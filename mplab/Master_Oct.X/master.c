@@ -5,6 +5,10 @@
  * Created on 23 September 2021, 2:51 PM
  */
 
+/* Bluetooth setup code:
+ * sudo rfcomm connect /dev/rfcomm0 98:DA:D0:00:5E:C4 1 &
+ * sudo minicom -D /dev/rfcomm0
+ */
 // PIC32MX220F032B Configuration Bit Settings
 
 // DEVCFG3
@@ -41,8 +45,6 @@
 #pragma config BWP = OFF                // Boot Flash Write Protect bit (Protection Disabled)
 #pragma config CP = OFF                 // Code Protect (Protection Disabled)
 
-#include <math.h>
-
 #include "master.h"
 
 int main() {
@@ -50,19 +52,21 @@ int main() {
     delay(100000);
     
     Master_Init();
-    Init(bot);
-    UART_Write_String("Bot Initialized...\r\n", 21);
-    UART_Write_String("Peripherals Initialized\r\n", 26);
+    Init();
+    bot->portCN = PORTB;
+    Bot_UART_Write(bot, "Bot Initialized...\r\n");
+    Bot_UART_Write(bot, "Peripherals Initialized...\r\n");
     uint8_t whoami[2] = {0};
-    IMU_Init(bot, whoami);
+    IMU_Init(bot->asa, whoami);
+    Bot_UART_Write(bot, "Peripherals Initialized...\r\n");
     
     /*OLED_Init();
     OLED_ClearDisplay();
     OLED_Write_Text(0, 0, "Hello world 2!");
     OLED_Update();*/
      
-    snprintf(bot->buf, 100, "IMU_ADD: %d, MAG_ADD: %d\r\n", whoami[0], whoami[1]);
-    UART_Write_String(bot->buf, strlen(bot->buf));
+    //snprintf(bot->buf, 100, "IMU_ADD: %d, MAG_ADD: %d\r\n", whoami[0], whoami[1]);
+    //UART_Write_String(bot->buf, strlen(bot->buf));
     
     for (;;);
     return EXIT_SUCCESS;
@@ -70,33 +74,48 @@ int main() {
 
 void Master_Init() {
     bot = malloc(sizeof(struct Bot));
-    bot->state = 0;
-    bot->uartState = 1;		// .uartState=0 in prod
+    bot->state = STATE_UART_MASK;		// .uartState=0 in prod
     float startMap[2] = { -MAP_SIZE / 2, MAP_SIZE / 2 };
-    BitMap_Initialize(&bot->currentMap, startMap);
+    BitMap_Initialize(bot, &bot->currentMap, startMap);
     Bot_Map_Required(bot);
+    bot->inputPos[0] = 2.0;
+}
+
+void SYS_Unlock() {
+    SYSKEY = 0x0; // write invalid key to force lock
+    SYSKEY = 0xAA996655; // Write Key1 to SYSKEY
+    SYSKEY = 0x556699AA; // Write Key2 to SYSKEY
+    // OSCCON is now unlocked
+}
+
+void SYS_Lock() {
+    SYSKEY = 0x0; 
 }
 
 /* Interrupt functions */
 
-/* Ultrasonic echo timer */
-void __ISR(_TIMER_2_VECTOR, IPL2SOFT) TMR2_IntHandler() {
-    IFS0CLR = _IFS0_T2IF_MASK;
-}
-
 /* Sample timer */
-void __ISR(_TIMER_4_VECTOR, IPL2SOFT) TMR4_IntHandler() {
-    IFS0CLR = _IFS0_T4IF_MASK;
-    
+void __ISR(_TIMER_1_VECTOR, IPL2SOFT) TMR1_IntHandler() {
+    IFS0CLR = _IFS0_T1IF_MASK;
+    bot->time++;
     Bot_Pos_Update(bot);
-    if (bot->count % 5) Trigger_Ultrasonic(bot);
-    //Bot_Controller();
+    if (bot->count % 5) Ultrasonic_Trigger();
+    Bot_Controller(bot);
     
-    bot->count = (bot->count + 1) % 10;//(int)FREQ;
+    bot->count = (bot->count + 1) % (int)FREQ;
     if (bot->count == 0) {
-	bot->time++;
+	/* 1 Hz */
+	Odometer_Read(bot->odo);
 	AD1CON1SET = _AD1CON1_SAMP_MASK;
-	if (bot->uartState) Bot_Display_Status(bot);
+	/*if (bot->time++ == 3) {
+	    bot->state = NAVIGATE;
+	    bot->bias[0] /= bot->numBias;
+	    bot->bias[1] /= bot->numBias;
+	    bot->bias[2] *= M_PI / (180.0 * bot->numBias);
+	}*/
+	
+	if (bot->state & STATE_UART_MASK) Bot_Display_Status(bot);
+	else Bot_UART_Write(bot, "Hendrik to Earth...\r\n");
 	/*Bot_Display_BitMap(bot.currentMap); */
 	/*for (char i = 0; i < 4; i++)
 	    if (ProbMap_Contains(bot.localMaps[i], bot.pos))
@@ -104,6 +123,7 @@ void __ISR(_TIMER_4_VECTOR, IPL2SOFT) TMR4_IntHandler() {
     }
 }
 
+/* Ultrasonic echo timer */
 void __ISR(_TIMER_5_VECTOR, IPL2SOFT) TMR5_IntHandler() {
     IFS0CLR = _IFS0_T5IF_MASK;
     bot->distances[bot->usState] = (float)TMR5 * SOUND_SPEED;
@@ -112,7 +132,7 @@ void __ISR(_TIMER_5_VECTOR, IPL2SOFT) TMR5_IntHandler() {
     
     /* check if all readings taken, update map */
     bot->usState = (bot->usState + 1) % US_SENSORS;
-    //if (bot.usState == 0) Bot_Map_Update();
+    if (bot->usState == 0) Bot_Map_Update(bot);
 }
 
 /* Battery sampler */
@@ -123,60 +143,35 @@ void __ISR(_ADC_VECTOR, IPL2SOFT) ADC_IntHandler() {
     }
 }
 
-/* Fall sensor */
-void __ISR(_EXTERNAL_3_VECTOR, IPL2SOFT) Ext3_IntHandler() {
-    IFS0CLR = _IFS0_INT3IF_MASK;
-}
-
 /* User */
 void __ISR(_CHANGE_NOTICE_VECTOR, IPL2SOFT) CNB_IntHandler() {
     if ((bot->portCN & 0x20) && !(PORTB & 0x20)) {
 	/* button press occured */
-	bot->uartState ^= 1;
-	
-	switch (bot->uartState) {
-	    case 0: {
-		U1MODECLR = _U1MODE_ON_MASK;
-		TRISASET = 0x10;
-		TRISBSET = 0x10;
-		U1RXR = 0x0;		// RA4 = RX
-		RPA2R = 0x5;		// RA2 = OC4
-		RPA4R = 0x6;		// RA4 = OC5
-		RPB4R = 0x0;		// RB4 = TX
-		OC4CONSET = _OC4CON_ON_MASK;
-		OC5CONSET = _OC5CON_ON_MASK;
-		break;
-	    }
-	    
-	    case 1: {
-		OC4CONCLR = _OC4CON_ON_MASK;
-		OC5CONCLR = _OC5CON_ON_MASK;
-		U1RXR = 0x2;		// RA4 = RX
-		RPA2R = 0x0;		// RA2 = OC4
-		RPA4R = 0x0;		// RA4 = OC5
-		RPB4R = 0x1;		// RB4 = TX
-		U1MODESET = _U1MODE_ON_MASK;
-		break;
-	    }
-	}
-	
-	/*
-	switch (bot.state) {
-	    case IDLE: {
-		bot.numBias = 0;
-		for (int i = 0; i < 0; i++) bot.bias[i] = 0;
-		break;
-	    }
-	    
-	    case NAVIGATE: {
-		bot.bias[0] /= bot.numBias;
-		bot.bias[1] /= bot.numBias;
-		bot.bias[2] *= M_PI / (180.0 * bot.numBias);
-		break;
-	    }
-	} */
-	
+	SYS_Unlock();
+	RSWRSTSET = 1;
+	volatile int * p = &RSWRST;
+	*p;
+	while (1);
     }
     bot->portCN = PORTB;
     IFS1CLR = _IFS1_CNBIF_MASK;
+}
+
+/*
+void __ISR(_UART_2_VECTOR, IPL2SOFT) UART_IntHandler() {
+    if (IFS1bits.U2TXIF) {
+	IFS1CLR = _IFS1_U2TXIF_MASK;
+	if (bot->buf[bot->bufPrintIndex]) {
+	    UART_Write(bot->buf[bot->bufPrintIndex]);
+	    bot->bufPrintIndex = (bot->bufPrintIndex + 1) % (BUF_LEN - 1);
+	}
+    }
+}
+ * */
+
+void __ISR(_DMA1_VECTOR, IPL2SOFT) DMA_IntHandler() {
+    if (DCH1INT & _DCH1INT_CHBCIF_MASK) {
+	DCH1INTCLR = _DCH1INT_CHBCIF_MASK;
+    }
+    IFS1CLR = _IFS1_DMA1IF_MASK;
 }

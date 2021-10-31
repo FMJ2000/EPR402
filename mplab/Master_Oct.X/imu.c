@@ -1,6 +1,6 @@
 #include "imu.h"
 
-void IMU_Init(struct Bot * bot, uint8_t whoami[2]) {
+void IMU_Init(float asa[3], uint8_t whoami[2]) {
     //snprintf(bot.buf, 100, "init: %d (%d)\r\n", I2C2STAT, PORTB);
     //UART_Write_String(bot.buf, strlen(bot.buf));
     I2C_Write(MPU9250_AD, PWR_MGMT_1_AD, 0x01);
@@ -14,9 +14,9 @@ void IMU_Init(struct Bot * bot, uint8_t whoami[2]) {
     
     I2C_Write(MAG_AD, CNTL1_AD, 0x1F);
     delay(100000);
-    uint8_t asa[3];
-    I2C_Read(MAG_AD, ASAX_AD, asa, 3);
-    for (uint8_t i = 0; i < 3; i++) bot->asa[i] = ((float)asa[i] - 128) / 256 + 1;
+    uint8_t asaInt[3];
+    I2C_Read(MAG_AD, ASAX_AD, asaInt, 3);
+    for (uint8_t i = 0; i < 3; i++) asa[i] = ((float)asaInt[i] - 128) / 256 + 1;
     I2C_Write(MAG_AD, CNTL1_AD, 0x0);
     delay(100000);
     I2C_Write(MAG_AD, CNTL1_AD, 0x16);
@@ -27,7 +27,7 @@ void IMU_Init(struct Bot * bot, uint8_t whoami[2]) {
     I2C_Read(MAG_AD, WIA_AD, &whoami[1], 1);
 }
 
-void IMU_Read(float result[9], float asa[3]) {
+void IMU_Read(float gyro[3], float acc[3], float mag[3], float asa[3]) {
     /* Get IMU sensor data */
     uint8_t data[18];		// 9 sensor readings
     uint8_t status;	// 2 magnetometer status bits
@@ -43,8 +43,8 @@ void IMU_Read(float result[9], float asa[3]) {
     for (uint8_t i = 0; i < 6; i++) values[i] = (data[2*i] << 8) | data[2*i+1];
     for (uint8_t i = 0; i < 3; i++) values[6+i] = (data[7+2*i] << 8) | data[6+2*i];
     for (uint8_t i = 0; i < 3; i++) {
-	result[i] = (float)values[i] * M_PI / (GYRO_SENS * 180.0);
-	result[3+i] = (float)values[3+i] / ACCEL_SENS;
-	result[6+i] = (float)values[6+i] * asa[i] * SCALE;
+	gyro[i] = (float)values[i] * M_PI / (GYRO_SENS * 180.0);
+	acc[i] = (float)values[3+i] / ACCEL_SENS;
+	mag[i] = (float)values[6+i] * asa[i] * SCALE;
     }
 }

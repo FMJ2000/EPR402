@@ -1,7 +1,10 @@
 #ifndef _BOT_H
 #define _BOT_H
 
+#include <stdarg.h>
+
 #include "master.h"
+#include "periph.h"
 
 #define PWM_T 0xFFF
 #define VEL_MAX 0.55                     // maximum speed (m/s) if duty 100%
@@ -12,7 +15,7 @@
 #define BETA M_PI / 2.0
 #define GAMMA 0.1   
 #define K_EST 0.8
-#define K_OFFSET 0.3
+#define K_OFFSET 0.4
 #define K_ALPHA 0.024
 #define K_TURN 2.5
 #define ERROR_MAX 5. * M_PI / 180.
@@ -44,6 +47,11 @@
 #define BIAS_MAX 1000
 #define IDLE 0
 #define NAVIGATE 1
+#define BUF_LEN 1024
+
+#define STATE_MASK 0x1
+#define STATE_UART_MASK 0x2
+#define STATE_TX_MASK 0x3
 
 /* bot data structures */
 struct ProbMap {
@@ -63,6 +71,7 @@ struct Bot {
     float pos[3];               // x, y, rot
     float dPos[3];              // pos at last desired pos, angle at last map
     float inputPos[2];
+    uint8_t odo[2];
     unsigned int execIndex;
     unsigned int addIndex;
     float ePos[3];              // pid error
@@ -76,7 +85,6 @@ struct Bot {
     
     /* mapping */
     char usState;
-    char usCount;
     float distances[3];
     char changeLock;                        // do not use maps while recreating them
     struct BitMap * currentMap;             // current bitmap of bot
@@ -93,7 +101,7 @@ struct Bot {
     char state;
     char uartState;
     int portCN;
-    unsigned char buf[100];
+    unsigned char buf[BUF_LEN];
 };
 
 /* bot functions */
@@ -107,11 +115,12 @@ void Bot_Optimise_Local(struct Bot * bot);
 void Bot_Controller(struct Bot * bot);
 void Bot_Vector_Angles(struct Bot * bot, float angles[US_SENSORS]);
 void Bot_Display_Status(struct Bot * bot);
+void Bot_UART_Write(struct Bot * bot, char * format, ...);
 void Bot_Display_BitMap(struct BitMap * map);
 void Bot_Display_ProbMap(struct ProbMap * map);
 
 /* map functions */
-void BitMap_Initialize(struct BitMap ** ptr, float pos[2]);
+void BitMap_Initialize(struct Bot * bot, struct BitMap ** ptr, float pos[2]);
 void ProbMap_Initialize(struct ProbMap ** ptr, float pos[2], char fillVal);
 char BitMap_Contains(struct BitMap * map, float pos[2]);
 char ProbMap_Contains(struct ProbMap * map, float pos[2]);

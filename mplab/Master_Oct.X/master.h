@@ -4,6 +4,7 @@
 #include <xc.h>
 #include <proc/p32mx270f256b.h>
 #include <sys/attribs.h>
+#include <sys/kmem.h>
 #include <stdlib.h>
 #include <math.h>
 #include <string.h>
@@ -45,5 +46,7 @@ static float sensorModifier[US_SENSORS][US_SENSORS] = {
 };
 
 void Master_Init();
+void SYS_Unlock();
+void SYS_Lock();
 
 #endif

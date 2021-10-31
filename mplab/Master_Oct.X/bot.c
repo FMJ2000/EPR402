@@ -1,13 +1,7 @@
 #include "bot.h"
 
 void Bot_Pos_Update(struct Bot * bot) {
-    float imuData[9];
-    IMU_Read(imuData, bot->asa);
-    for (uint8_t i = 0; i < 3; i++) {
-	bot->gyro[i] = imuData[i];
-	bot->acc[i] = imuData[3+i];
-	bot->mag[i] = imuData[6+i];
-    }
+    IMU_Read(bot->gyro, bot->acc, bot->mag, bot->asa);
     
     switch (bot->state) {
 	case IDLE: {
@@ -32,7 +26,8 @@ void Bot_Pos_Update(struct Bot * bot) {
 	    ePos[1] = bot->pos[1] + dPos[1] * DT;
 	    ePos[2] = bot->pos[2] + dPos[2] * DT;
 	    
-	    /* estimate roation with gyroscope */
+	    /* estimate rotation with IMU */
+	    
 	    float mPos[3] = {0.0, 0.0, bot->pos[2] + bot->gyro[2] * DT};
 	    float dc = 1;//(fabs(bot.duty[0]) + fabs(bot.duty[1])) / 2.0;
 
@@ -62,7 +57,7 @@ float Bot_InputPos_Update(struct Bot * bot) {
 	}
     }
     float dcAvg = (bot->duty[0] + bot->duty[1]) / 10.0;
-    if (minDist < MIN_OBST_DIST + dcAvg) {
+    /*if (minDist < MIN_OBST_DIST + dcAvg) {
 	LATAINV = _LATA_LATA1_MASK;
 	float newAngle = Box_Muller(bot->pos[2] + sensorOffsets[maxIndex], NAV_SIGMA);
 	float newDist = (bot->distances[maxIndex] - MIN_OBST_DIST > MIN_INPUT_DIST) ? MIN_INPUT_DIST : bot->distances[maxIndex];
@@ -100,7 +95,7 @@ float Bot_InputPos_Update(struct Bot * bot) {
 	    bot.inputPos[1] = bot.pos[1] + MIN_INPUT_DIST * sin(bot.randomAngle);
 	}
 	memcpy(bot.dPos, bot.pos, sizeof(float) * 2);*/
-    }
+    //}*/
     
     return minDist;
 }
@@ -163,7 +158,7 @@ void Bot_Map_Required(struct Bot * bot) {
     for (char i = 0; i < 3; i++) {
 	if (!bot->currentMap->neighbors[req[i]]) {
 	    float pos[2] = { bot->currentMap->pos[0] + posModifier[req[i]][0] * MAP_SIZE, bot->currentMap->pos[1] + posModifier[req[i]][1] * MAP_SIZE };
-	    BitMap_Initialize(&bot->currentMap->neighbors[req[i]], pos);
+	    BitMap_Initialize(bot, &bot->currentMap->neighbors[req[i]], pos);
 	    bot->currentMap->neighbors[req[i]]->neighbors[(req[i] + 4) % 8] = bot->currentMap;
 	    Bot_Reinforce_Neighbors(bot->currentMap->neighbors[req[i]]);
 	}
@@ -211,7 +206,7 @@ void Bot_Reinforce_Neighbors(struct BitMap * map) {
 void Bot_Map_Update(struct Bot * bot) {
     float obstaclePos[US_SENSORS][2];
     float valid[US_SENSORS] = {0};
-    char numPos = distanceToPos(bot, obstaclePos, valid, bot->distances);
+    char numPos = distanceToPos(obstaclePos, bot->pos, valid, bot->distances);
     
     if (numPos > 0) {
 	/* loop each local cell, check validity and modify */
@@ -259,8 +254,6 @@ void Bot_Map_Update(struct Bot * bot) {
 	    }
 	}
     }
-    
-    bot->usCount = (bot->usCount + 1) % 10;
 }
 
 void Bot_Optimise_Local(struct Bot * bot) {
@@ -294,7 +287,7 @@ void Bot_Controller(struct Bot * bot) {
 	    float distance = Bot_InputPos_Update(bot);
 	    
 	    /* navigate: obtain error angle and distance */
-	    float viewVec[2] = { bot->pos[0] + cos(bot->pos[2]), bot->pos[1] + sin(bot->pos[2]) };
+	    //float viewVec[2] = { bot->pos[0] + cos(bot->pos[2]), bot->pos[1] + sin(bot->pos[2]) };
 	    float inputVec[2] = { bot->inputPos[0] - bot->pos[0], bot->inputPos[1] - bot->pos[1] };
 	    bot->ePos[2] = normAngle(atan2(inputVec[1], inputVec[0]) - bot->pos[2]);//atan2(viewVec[1], viewVec[0]);
     
@@ -357,62 +350,71 @@ void Bot_Display_Status(struct Bot * bot) {
 	if (bot->localMaps[i]) memcpy(mapPos[i], bot->localMaps[i], sizeof(float) * 2);
     }
     
-    snprintf(bot->buf, 100, "\33[2J\33[H(%ds) Bot state: %d, battery: %.2f%%\r\n", bot->time, bot->state, bot->battery);
-    UART_Write_String(bot->buf, strlen(bot->buf));
-    snprintf(bot->buf, 100, "pos: (%.2f, %.2f, %.2f)\r\n", bot->pos[0], bot->pos[1], bot->pos[2] * 180.0 / M_PI);
-    UART_Write_String(bot->buf, strlen(bot->buf));
-    snprintf(bot->buf, 100, "input: (%.2f, %.2f), random: %.2f\r\n", bot->inputPos[0], bot->inputPos[1], bot->randomAngle);
-    UART_Write_String(bot->buf, strlen(bot->buf));
-    snprintf(bot->buf, 100, "error: (%.2f, %.2f, %.2f)\r\n", bot->ePos[0], bot->ePos[1], bot->ePos[2] * 180.0 / M_PI);
-    UART_Write_String(bot->buf, strlen(bot->buf));
-    snprintf(bot->buf, 100, "duty: (%.2f, %.2f)\r\n", bot->duty[0], bot->duty[1]);
-    UART_Write_String(bot->buf, strlen(bot->buf));    
-    snprintf(bot->buf, 100, "gyro: (%.2f, %.2f, %.2f), acc: (%.2f. %.2f, %.2f), mag: (%.2f, %.2f, %.2f)\r\n",
+    Bot_UART_Write(bot, "\33[2J\33[H(%ds) Bot state: %d, battery: %.2f%%\r\n", bot->time, bot->state, bot->battery);
+    Bot_UART_Write(bot, "pos: (%.2f, %.2f, %.2f)\r\n", bot->pos[0], bot->pos[1], bot->pos[2] * 180.0 / M_PI);
+    Bot_UART_Write(bot, "input: (%.2f, %.2f), random: %.2f\r\n", bot->inputPos[0], bot->inputPos[1], bot->randomAngle);
+    Bot_UART_Write(bot, "error: (%.2f, %.2f, %.2f)\r\n", bot->ePos[0], bot->ePos[1], bot->ePos[2] * 180.0 / M_PI);
+    Bot_UART_Write(bot, "duty: (%.2f, %.2f)\r\n", bot->duty[0], bot->duty[1]);  
+    Bot_UART_Write(bot, "gyro: (%.2f, %.2f, %.2f), acc: (%.2f. %.2f, %.2f), mag: (%.2f, %.2f, %.2f)\r\n",
 	bot->gyro[0], bot->gyro[1], bot->gyro[2], bot->acc[0], bot->acc[1], bot->acc[2], bot->mag[0], bot->mag[1], bot->mag[2]);
-    UART_Write_String(bot->buf, strlen(bot->buf));
-    snprintf(bot->buf, 100, "bias: (%.2f, %.2f, %.2f), asa: (%.2f, %.2f, %.2f)\r\n", bot->bias[0], bot->bias[1], bot->bias[2], bot->asa[0], bot->asa[1], bot->asa[2]);
-    UART_Write_String(bot->buf, strlen(bot->buf));
-    snprintf(bot->buf, 100, "dist: (%.2f, %.2f, %.2f)\r\n", bot->distances[0], bot->distances[1], bot->distances[2]);
-    UART_Write_String(bot->buf, strlen(bot->buf));
-    snprintf(bot->buf, 100, "numMaps: %d, local: (%.2f, %.2f), (%.2f, %.2f), (%.2f, %.2f), (%.2f, %.2f)\r\n", bot->numMaps,
+    Bot_UART_Write(bot, "bias: (%.2f, %.2f, %.2f), asa: (%.2f, %.2f, %.2f)\r\n", bot->bias[0], bot->bias[1], bot->bias[2], bot->asa[0], bot->asa[1], bot->asa[2]);
+    Bot_UART_Write(bot, "dist: (%.2f, %.2f, %.2f)\r\n", bot->distances[0], bot->distances[1], bot->distances[2]);
+    Bot_UART_Write(bot, "numMaps: %d, local: (%.2f, %.2f), (%.2f, %.2f), (%.2f, %.2f), (%.2f, %.2f)\r\n", bot->numMaps,
 	mapPos[0][0], mapPos[0][1], mapPos[1][0], mapPos[1][1], mapPos[2][0], mapPos[2][1], mapPos[3][0], mapPos[3][1]);
-    UART_Write_String(bot->buf, strlen(bot->buf));
-    /*snprintf(bot.buf, 100, "bitMap: (%.2f, %.2f)\r\n", bot.currentMap->pos[0], bot.currentMap->pos[1]);
-    UART_Write_String(bot.buf, strlen(bot.buf));*/
+    Bot_UART_Write(bot, "bitMap: (%.2f, %.2f)\r\n", bot->currentMap->pos[0], bot->currentMap->pos[1]);
+}
+
+void Bot_UART_Write(struct Bot * bot, char * format, ...) {
+    va_list args;
+    va_start(args, format);
+    DCH1SSIZ = vsnprintf(bot->buf, BUF_LEN, format, args);
+    /*bot->bufSaveIndex += len;
+    if (bot->bufSaveIndex > BUF_LEN) {
+	len = vsnprintf(bot->buf, BUF_LEN, format, args);
+	bot->bufSaveIndex = len;
+	
+    }
+    if (bot->buf[bot->bufPrintIndex]) {
+	UART_Write(bot->buf[bot->bufPrintIndex]);
+	bot->bufPrintIndex = (bot->bufPrintIndex + 1) % (BUF_LEN - 1);
+    }*/
+    DCH1INTCLR = 0x00FF00FF;
+    DCH1CONSET = _DCH1CON_CHEN_MASK;
+    va_end(args);
 }
 
 void Bot_Display_BitMap(struct BitMap * map) {
-    snprintf(bot->buf, 100, "\r\nBitMap pos: (%.2f, %.2f)\r\n", map->pos[0], map->pos[1]);
-    UART_Write_String(bot->buf, strlen(bot->buf));
+    /*snprintf(bot->buf, 100, "\r\nBitMap pos: (%.2f, %.2f)\r\n", map->pos[0], map->pos[1]);
+    UART_Write_String();
     for (char i = 0; i < MAP_UNITS; i++) {
 	snprintf(bot->buf, 100, "%d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d\r\n",
 	    map->grid[0][i] & 1, (map->grid[0][i] >> 1) & 1, (map->grid[0][i] >> 2) & 1, (map->grid[0][i] >> 3) & 1,
 	    (map->grid[0][i] >> 4) & 1, (map->grid[0][i] >> 5) & 1, (map->grid[0][i] >> 6) & 1, (map->grid[0][i] >> 7) & 1,
 	    map->grid[1][i] & 1, (map->grid[1][i] >> 1) & 1, (map->grid[1][i] >> 2) & 1, (map->grid[1][i] >> 3) & 1,
 	    (map->grid[1][i] >> 4) & 1, (map->grid[1][i] >> 5) & 1, (map->grid[1][i] >> 6) & 1, (map->grid[1][i] >> 7) & 1);
-	UART_Write_String(bot->buf, strlen(bot->buf));
-    }
+	UART_Write_String();
+    }*/
 }
 
 void Bot_Display_ProbMap(struct ProbMap * map) {
-    snprintf(bot->buf, 100, "\r\nProbMap pos: (%.2f, %.2f)\r\n", map->pos[0], map->pos[1]);
-    UART_Write_String(bot->buf, strlen(bot->buf));
+    /*snprintf(bot->buf, 100, "\r\nProbMap pos: (%.2f, %.2f)\r\n", map->pos[0], map->pos[1]);
+    UART_Write_String();
     for (char i = 0; i < MAP_UNITS; i++) {
 	snprintf(bot->buf, 100, "%d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d\r\n",
 	    map->grid[0][i], map->grid[1][i], map->grid[2][i], map->grid[3][i],
 	    map->grid[4][i], map->grid[5][i], map->grid[6][i], map->grid[7][i],
 	    map->grid[8][i], map->grid[9][i], map->grid[10][i], map->grid[11][i],
 	    map->grid[12][i], map->grid[13][i], map->grid[14][i], map->grid[15][i]);
-	UART_Write_String(bot->buf, strlen(bot->buf));
-    }
+	UART_Write_String();
+    }*/
 }
 
 /* map functions */
-void BitMap_Initialize(struct BitMap ** ptr, float pos[2]) {
+void BitMap_Initialize(struct Bot * bot, struct BitMap ** ptr, float pos[2]) {
     *ptr = malloc(sizeof(struct BitMap));
     memcpy((*ptr)->pos, pos, sizeof(float) * 2);
     for (char i = 0; i < 8; i++) (*ptr)->neighbors[i] = NULL;
-    for (char i = 0; i < MAP_UNITS_BIT; i++)
+    for (char i = 0; i < MAP_UNITS; i++)
 	for (char j = 0; j < MAP_UNITS_BIT; j++)
 	    (*ptr)->grid[i][j] = 0xF;
     bot->numMaps++;
