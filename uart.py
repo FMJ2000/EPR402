@@ -8,8 +8,9 @@ ser.flushInput()
 while True:
 	try:
 		ser_bytes = ser.readline()
+		#list_bytes = list(ser)
 		decoded_bytes = ser_bytes[0:len(ser_bytes)-2].decode("utf-8")
-		print(decoded_bytes)		
+		print(decoded_bytes)
 		'''
 		acc = [((data[2*i] << 8) | data[1+2*i]) for i in range(3)]
 		gyro = [((data[8+2*i] << 8) | data[9+2*i]) for i in range(3)]
