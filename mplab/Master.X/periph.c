@@ -184,8 +184,8 @@ void Ultrasonic_Trigger() {
 }
 
 void Odometer_Read(uint8_t times, uint8_t odo[2]) {
-    odo[0] = TMR2 * times;
-    odo[1] = TMR4 * times;
+    odo[0] = ODO_WEIGHT * TMR2 * times + (1 - ODO_WEIGHT) * odo[0];
+    odo[1] = ODO_WEIGHT * TMR4 * times + (1 - ODO_WEIGHT) * odo[1];
     TMR2 = 0x0;
     TMR4 = 0x0;
 }

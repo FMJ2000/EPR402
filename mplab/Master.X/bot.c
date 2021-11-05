@@ -22,7 +22,9 @@ void Bot_Pos_Update(struct Bot * bot, uint8_t startIndex, char verbose) {
     for (uint8_t i = 0; i < n - 1; i++) bot->firX[i+1] = bot->firX[i];
     bot->firX[0] = atan2(bot->mag[1], bot->mag[0]);
     float wMag = Bot_FIR_Filter(bot, n);
+    
 
+    
     // fuse wheel angular rate from estimate and odometer
     float wDc[2] = { bot->duty[0]*VEL_MAX, bot->duty[1]*VEL_MAX };
     float wOdo[2] = { copysign(1.0, wDc[0]) * bot->odo[0]*ODO_SCALE, copysign(1.0, wDc[1]) * bot->odo[1]*ODO_SCALE };
@@ -30,7 +32,7 @@ void Bot_Pos_Update(struct Bot * bot, uint8_t startIndex, char verbose) {
 	(K_ODO*wOdo[0] + (1 - K_ODO)*wDc[0])*WHEEL_RADIUS,
 	(K_ODO*wOdo[1] + (1 - K_ODO)*wDc[1])*WHEEL_RADIUS
     };
-
+   
     // fuse velocity from estimate and accelerometer
     float vEst[3] = {
 	0.5 * (cos(bot->pos[2])*wVel[0] + cos(bot->pos[2])*wVel[1]),
@@ -51,6 +53,7 @@ void Bot_Pos_Update(struct Bot * bot, uint8_t startIndex, char verbose) {
     // estimate new position
     for (uint8_t i = 0; i < 3; i++) bot->pos[i] += bot->vel[i] * DT;
     //bot->pos[2] = K_MAG*wMag + (1 - K_MAG)*bot->pos[2];
+    bot->pos[2] = normAngle(bot->pos[2]);
 
     if (verbose) {
 	Bot_UART_Write(bot, "POSITION\r\n"
@@ -72,9 +75,10 @@ void Bot_Pos_Update(struct Bot * bot, uint8_t startIndex, char verbose) {
 	);
     }
 
-    /* check if out of map bounds and turned too much 
-    if ((fabs(bot->pos[2] - bot->dPos[2]) > SENSOR_OFFSET) || !BitMap_Contains(bot->currentMap, bot->pos))
-	Bot_Map_Required(bot);*/
+    // check if out of map bounds and turned too much 
+    uint8_t index[2] = {0};
+    if ((fabs(bot->pos[2] - bot->dPos[2]) > SENSOR_OFFSET) || !BitMap_Contains(bot->currentMaps[0], index, bot->pos))
+	Bot_Map_Required(bot);
 }
 
 float Bot_InputPos_Update(struct Bot * bot) {
@@ -134,24 +138,6 @@ float Bot_InputPos_Update(struct Bot * bot) {
     return 0;
 }
 
-char Bot_Frontier(struct Bot * bot, float pos[2]) {
-    /*
-    char max = 0xF;
-    for (char i = 0; i < 4; i++) {
-	if (bot->localMaps[i] && ProbMap_Contains(bot->localMaps[i], pos)) {
-	    char mapIndex[2] = { (char)((pos[0] - bot->localMaps[i]->pos[0]) / MAP_RES), (char)((bot->localMaps[i]->pos[1] - pos[1]) / MAP_RES) };
-	    max = bot->localMaps[i]->grid[mapIndex[0]][mapIndex[1]];
-	    for (char j = 0; j < 8; j++) {
-		char val = bot->localMaps[i]->grid[mapIndex[0] + posModifier[j][0]][mapIndex[1] + posModifier[j][1]];
-		if (max < val) max = val;
-	    }
-	    break;
-	}
-    }
-    return max;
-     * */
-}
-
 /* determine which maps will form part of supermap 
  * create maps if necessary */
 void Bot_Map_Required(struct Bot * bot) {
@@ -162,7 +148,7 @@ void Bot_Map_Required(struct Bot * bot) {
     /* update the current map based on the position of the bot */
     uint8_t index[2];
     if (!BitMap_Contains(bot->currentMaps[0], index, bot->pos)) {
-	for (char i = 0; i < 8; i++) {
+	for (uint8_t i = 0; i < 8; i++) {
 	    if (bot->currentMaps[0]->neighbors[i] && BitMap_Contains(bot->currentMaps[0]->neighbors[i], index, bot->pos)) {
 		bot->currentMaps[0] = bot->currentMaps[0]->neighbors[i];
 		break;
@@ -180,21 +166,21 @@ void Bot_Map_Required(struct Bot * bot) {
 	{bot->currentMaps[0]->pos[0], bot->currentMaps[0]->pos[1] - MAP_SIZE}
     };
     float minAngle = M_PI;
-    char minIndex = 0;
+    bot->mapsDir = 0;
     for (char i = 0; i < 4; i++) {
 	float angle = getAngle(viewVec[0], viewVec[1], rect[i][0], rect[i][1]);
 	if (angle < minAngle) {
 	    minAngle = angle;
-	    minIndex = i;
+	    bot->mapsDir = i;
 	}
     }
 
     /* identify/create bit and prob maps in corresponding direction */
     ProbMap_Initialize(&bot->localMaps[0], bot->currentMaps[0]->pos, DEFAULT_VAL);
-    char req[3] = {(2*minIndex + 7) % 8, 2*minIndex, (2*minIndex + 1) % 8};
+    char req[3] = {(2*bot->mapsDir + 7) % 8, 2*bot->mapsDir, (2*bot->mapsDir + 1) % 8};
     for (char i = 0; i < 3; i++) {
 	if (!bot->currentMaps[0]->neighbors[req[i]]) {
-	    float pos[2] = { bot->currentMaps[0]->pos[0] + posModifier[req[i]][0] * MAP_SIZE, bot->currentMaps[0]->pos[1] + posModifier[req[i]][1] * MAP_SIZE };
+	    float pos[2] = { bot->currentMaps[0]->pos[0] + bot->posModifier[req[i]][0] * MAP_SIZE, bot->currentMaps[0]->pos[1] + bot->posModifier[req[i]][1] * MAP_SIZE };
 	    BitMap_Initialize(bot, &bot->currentMaps[0]->neighbors[req[i]], pos);
 	    bot->currentMaps[0]->neighbors[req[i]]->neighbors[(req[i] + 4) % 8] = bot->currentMaps[0];
 	    Bot_Reinforce_Neighbors(bot->currentMaps[0]->neighbors[req[i]]);
@@ -292,8 +278,6 @@ void Bot_Map_Update(struct Bot * bot) {
 	    }
 	}
     }
-    
-    Bot_Optimise_Local(bot);
 }
 
 void Bot_Optimise_Local(struct Bot * bot) {
@@ -333,49 +317,48 @@ void Bot_Controller(struct Bot * bot, char verbose) {
 	    //float distance = Bot_InputPos_Update(bot);
 	    
 	    // obtain error angle and distance
-	    float inputVec[2] = { bot->inputPos[0][0] - bot->pos[0], bot->inputPos[0][1] - bot->pos[1] };
+	    float inputVec[2] = { bot->inputPos[0][0] - bot->pos[0], bot->pos[1] - bot->inputPos[0][1] };
+	    if (inputVec[0] == 0) inputVec[0] += 0.001;
 	    float ePos[2] = {
 		getDistance(bot->inputPos[0], bot->pos),
 		normAngle(atan2(inputVec[1], inputVec[0]) - bot->pos[2])
 	    };
 	    
-	    if (ePos[0] <= MIN_DIST) bot->state = (bot->state & ~STATE_MASK) | IDLE;
-	    else {
-		// pi controller   
-		float rotSign = copysign(1.0, ePos[1]);
-		if (fabs(ePos[1]) > ERROR_MAX) {
-		    bot->duty[0] = rotSign * K_OFFSET;
-		    bot->duty[1] = -rotSign * K_OFFSET;
-		} else {
-		    float p = (K_OFFSET / ERROR_MAX) * fabs(ePos[1]);
-		    float i = 0;//K_OFFSET - K_TURN * fabs(bot->ePos[0]);
-		    bot->duty[0] = K_OFFSET + rotSign * (p + i);// - (K_DIST * ePos[0]) / (ePos[0] + 0.005);
-		    bot->duty[1] = K_OFFSET - rotSign * (p + i);// - (K_DIST * ePos[0]) / (ePos[0] + 0.005);
-		}
+	    //if (ePos[0] <= MIN_DIST) bot->state = (bot->state & ~STATE_MASK) | IDLE;
+	    // pi controller   
+	    float rotSign = copysign(1.0, ePos[1]);
+	    if (fabs(ePos[1]) > ERROR_MAX) {
+		bot->duty[0] = -rotSign * K_OFFSET;
+		bot->duty[1] = rotSign * K_OFFSET;
+	    } else {
+		float p = ePos[1] * (K_OFFSET / ERROR_MAX);
+		float i = 0;//K_OFFSET - K_TURN * fabs(bot->ePos[0]);
+		bot->duty[0] = K_OFFSET - p + i;// - (K_DIST * ePos[0]) / (ePos[0] + 0.005);
+		bot->duty[1] = K_OFFSET + p + i;// - (K_DIST * ePos[0]) / (ePos[0] + 0.005);
+	    }
 
-		bot->ePos[0] = ePos[0];
-		bot->ePos[1] = ePos[1];
+	    bot->ePos[0] = ePos[0];
+	    bot->ePos[1] = ePos[1];
 
-		/*for (int i = 0; i < 2; i++) {
-		    /* set new duty cycles 
-		    if (newDuty[i] < bot.duty[i] - GAMMA) bot.duty[i] -= GAMMA;
-		    else if (newDuty[i] > bot.duty[i] + GAMMA) bot.duty[i] += GAMMA;
-		    //else if (fabs(newDuty[i]) < MIN_PWM) bot.duty[i] = 0.0;
-		    else bot.duty[i] = newDuty[i];
-		} */
+	    /*for (int i = 0; i < 2; i++) {
+		/* set new duty cycles 
+		if (newDuty[i] < bot.duty[i] - GAMMA) bot.duty[i] -= GAMMA;
+		else if (newDuty[i] > bot.duty[i] + GAMMA) bot.duty[i] += GAMMA;
+		//else if (fabs(newDuty[i]) < MIN_PWM) bot.duty[i] = 0.0;
+		else bot.duty[i] = newDuty[i];
+	    } */
 
-		if (verbose) {
-		    Bot_UART_Write(bot, "CONTROL\r\n"
-			    "rotSign: %.2f\r\n"
-			    "inputVec: (%.2f, %.2f)\r\n"
-			    "err: (%.2f, %.2f)\r\n"
-			    "duty: (%.2f, %.2f)\r\n\n",
-			    rotSign,
-			    inputVec[0], inputVec[1], 
-			    bot->ePos[0], bot->ePos[1], 
-			    bot->duty[0], bot->duty[1]
-		    );
-		}
+	    if (verbose) {
+		Bot_UART_Write(bot, "CONTROL\r\n"
+			"rotSign: %.2f\r\n"
+			"inputVec: (%.2f, %.2f)\r\n"
+			"err: (%.2f, %.2f)\r\n"
+			"duty: (%.2f, %.2f)\r\n\n",
+			rotSign,
+			inputVec[0], inputVec[1], 
+			bot->ePos[0], bot->ePos[1], 
+			bot->duty[0], bot->duty[1]
+		);
 	    }
 
 	    /* negative duty cycles should reverse rotation */
@@ -404,21 +387,66 @@ void Bot_Controller(struct Bot * bot, char verbose) {
 void Bot_Navigate(struct Bot * bot) {
     // check if necessary to change input
     if (getDistance(bot->pos, bot->inputPos[0]) < MIN_INPUT_DIST) {
-	//uint8_t index[2] = {0}
-	char ret = Bot_DFS(bot, bot->pos, 0);
+	// assume bot in currentMap[0]
+	float angle, minAngle = M_PI;
+	for (uint8_t i = 0; i < 8; i++) {
+	    angle = fabs(bot->angleModifier[i] - bot->pos[2]);
+	    if (angle < minAngle) {
+		minAngle = angle;
+		bot->posIndex = i;
+	    }
+	}
+	uint8_t newPos[3] = {0};
+	if (BitMap_Contains(bot->currentMaps[0], &newPos[1], bot->pos)) {
+	    uint8_t index = bot->posIndex;
+	    for (uint8_t i = 0; i < 8; i++) {
+		// identify position
+		newPos[0] = 0;
+		newPos[1] += bot->posModifier[index][0];
+		newPos[2] += bot->posModifier[index][1];
+		if (newPos[1] < 0 || newPos[1] >= MAP_UNITS || newPos[2] < 0 || newPos[2] >= MAP_UNITS) {
+		    newPos[0] = (bot->posIndex % 4 + 2 - 2*(bot->mapsDir % 2)) % 4;
+		    newPos[1] = (newPos[1] < 0) ? MAP_UNITS : (newPos[1] >= MAP_UNITS) ? MAP_UNITS : newPos[1];
+		    newPos[2] = (newPos[2] < 0) ? MAP_UNITS : (newPos[2] >= MAP_UNITS) ? MAP_UNITS : newPos[2];
+		}
+		
+		// check if valid
+		char val = Bitmap_At(bot->currentMaps[newPos[0]], &newPos[1]);
+		if (val < 0x2 & BitMap_IndexToPos(bot->currentMaps[newPos[0]], bot->inputPos[0], &newPos[1])) break;
+		else index = (index + 1) % 8;
+	    }
+	}
+	
     }
 }
 
-char Bot_DFS(struct Bot * bot, float pos[2], uint8_t depth) {
-    // find map & index at position
+char Bot_DFS(struct Bot * bot, uint8_t pos[3], uint8_t depth) {
+    /* find map & index at position
     uint8_t index[2] = {0}, i = -1;
     char found = BitMap_Contains(bot->currentMaps[0], index, pos);
     while (!found) {
 	i++;
 	if (bot->currentMaps[0]->neighbors[i]) found = BitMap_Contains(bot->currentMaps[0]->neighbors[i], index, pos);
-    }
+    }*/
     
 }
+
+// find three blocks in front of position (front, left, right)
+char Bot_Frontier(struct Bot * bot, uint8_t pos[3], uint8_t frontier[3][3]) {
+    /*for (uint8_t i = 0; i < 3; i++) {
+	uint8_t newPos[2] = { pos[1] + bot->posModifier[bot->posIndex][0], pos[2] + bot->posModifier[bot->posIndex][1] };
+	if (newPos[0] < 0 || newPos[0] >= MAP_UNITS || newPos[1] < 0 || newPos[1] >= MAP_UNITS) {
+	    // not in the current map, must be on border of neighbor
+	    frontier[i][0] = (bot->posIndex % 4 + 2 - 2*(bot->mapsDir % 2)) % 4;
+	    frontier[i][1] = 
+	} else {
+	    frontier[i][0] = 0;
+	    frontier[i][1] = bot->posModifier[i][0];
+	    frontier[i][2] = bot->posModifier[i][1];
+	}
+    }*/
+}
+
 
 void Bot_Vector_Angles(struct Bot * bot, float angles[US_SENSORS]) {
     float leftVec[2] = { bot->pos[0] + cos(bot->pos[2] + SENSOR_OFFSET), bot->pos[1] + sin(bot->pos[2] + SENSOR_OFFSET) };
@@ -450,7 +478,8 @@ void Bot_Display_Status(struct Bot * bot) {
     snprintf(line, OLED_LINE_LEN, "us %.2f %.2f %.2f", bot->distances[0], bot->distances[1], bot->distances[2]);
     OLED_Write_Text(0, 40, line);
     //snprintf(line, OLED_LINE_LEN, "a %.2f %.2f %.2f", bot->acc[0], bot->acc[1], atan2(bot->mag[1], bot->mag[0]) * 180.0 / M_PI);
-    snprintf(line, OLED_LINE_LEN, "b %.2f %.2f", bot->gyro[2], bot->firX[0]);
+    //snprintf(line, OLED_LINE_LEN, "v %.2f %.2f %.f", bot->vel[0], bot->vel[1], bot->vel[2] * 180.0 / M_PI);
+    snprintf(line, OLED_LINE_LEN, "map %.2f %.2f", bot->currentMaps[0]->pos[0], bot->currentMaps[0]->pos[1]);
     OLED_Write_Text(0, 50, line);
     OLED_Update();
 }
@@ -554,6 +583,7 @@ void ProbMap_Initialize(struct ProbMap ** ptr, float pos[2], char fillVal) {
 	    (*ptr)->grid[i][j] = fillVal;
 }
 
+/* index returns the index position of the position */
 char BitMap_Contains(struct BitMap * map, uint8_t index[2], float pos[2]) {
     float xRange[2] = { map->pos[0], map->pos[0] + MAP_SIZE };
     float yRange[2] = { map->pos[1] - MAP_SIZE, map->pos[1] };
@@ -584,6 +614,13 @@ char Bitmap_At(struct BitMap * map, uint8_t index[2]) {
 void BitMap_Set(struct BitMap * map, uint8_t index[2], char val) {
     char mask = 0x3 << 2*(index[1] % 4);
     map->grid[index[0]][index[1] / 4] = (map->grid[index[0]][index[1] / 4] & ~mask) | (val << 2*(index[1] % 4));
+}
+
+char BitMap_IndexToPos(struct BitMap * map, float pos[2], uint8_t index[2]) {
+    if (index[0] < 0 || index[0] >= MAP_UNITS || index[1] < 0 || index[1] >= MAP_UNITS) return 0;
+    pos[0] = map->pos[0] + index[0] * MAP_RES;
+    pos[1] = map->pos[1] - index[1] * MAP_RES;
+    return 1;
 }
 
 void Bot_FIR_Init(struct Bot * bot) {

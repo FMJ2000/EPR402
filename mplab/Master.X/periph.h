@@ -9,6 +9,7 @@
 #define UART_BRGH (int)(PBCLK / (4 * UART_BAUD) - 1)
 #define I2C_W 0x0
 #define I2C_R 0x1
+#define ODO_WEIGHT 0.8
 
 /* peripheral defintions */
 void Init(unsigned char * buf);

@@ -71,10 +71,23 @@ int main() {
 void Master_Init() {
     bot = malloc(sizeof(struct Bot));
     bot->state = INIT;//STATE_UART_MASK;		// .uartState=0 in prod
+    bot->angleModifier = (float [8]){3*M_PI/4, M_PI/2, M_PI/4, 0, -M_PI/4, M_PI/2, -3*M_PI/4, M_PI};
+    const uint8_t posModifier[8][2] = {
+        {-1, 1},
+        {0, 1},
+        {1, 1},
+        {1, 0},
+        {1, -1},
+        {0, -1},
+        {-1, -1},
+        {-1, 0}
+    };
+    memcpy(&bot->posModifier, &posModifier, sizeof(bot->posModifier));
     Bot_FIR_Init(bot);
     float startMap[2] = { -MAP_SIZE / 2, MAP_SIZE / 2 };
     BitMap_Initialize(bot, &bot->currentMaps[0], startMap);
     Bot_Map_Required(bot);
+    //bot->inputPos[0][0] = 1.0;
 }
 
 void SYS_Unlock() {
@@ -100,16 +113,17 @@ void __ISR(_TIMER_1_VECTOR, IPL2SOFT) TMR1_IntHandler() {
 	Ultrasonic_Trigger();
     }
     
-    // bot odo update adn status display at 5 Hz
+    // bot pos update and controller at 20 Hz
+    Bot_Pos_Update(bot, bot->count, 0);
+    Bot_Navigate(bot);
+    Bot_Controller(bot, 0);
+    
+    // bot odo update and status display at 5 Hz
     if (bot->count % (FREQ / 5) == 0) {
 	Odometer_Read(5, bot->odo);
 	//Bot_Display_Status(bot);
 	Bot_Display_BitMap(bot);
     }
-    
-    // bot pos update and controller at 10 Hz
-    Bot_Pos_Update(bot, bot->count, 0);
-    Bot_Controller(bot, 0);
     
     // bot battery read at 1 Hz
     if (bot->count % FREQ == 0) {
@@ -117,9 +131,10 @@ void __ISR(_TIMER_1_VECTOR, IPL2SOFT) TMR1_IntHandler() {
 	if (bot->time == 3) {
 	    for (uint8_t i = 0; i < 6; i++) bot->bias[i] /= bot->numBias;
 	    bot->bias[2] *= M_PI / 180.0;
-	    bot->state = IDLE;
+	    bot->state = (bot->state & ~STATE_MASK) | NAVIGATE;
 	}
 	AD1CON1SET = _AD1CON1_SAMP_MASK;
+	Bot_Optimise_Local(bot);
 	if (bot->state & STATE_UART_MASK) Bot_UART_Send_Status(bot);
 	bot->count = 0;
 	bot->portCN = 1;
@@ -136,7 +151,7 @@ void __ISR(_TIMER_5_VECTOR, IPL2SOFT) TMR5_IntHandler() {
 
 	/* check if all readings taken, update map */
 	bot->usState = (bot->usState + 1) % US_SENSORS;
-	if (bot->usState == 0) Bot_Map_Update(bot);
+	if (bot->usState == 0 && !bot->changeLock) Bot_Map_Update(bot);
     }
 }
 
