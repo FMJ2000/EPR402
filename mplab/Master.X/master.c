@@ -52,7 +52,7 @@ int main() {
     
     Master_Init();
     Init(bot->buf);
-    bot->portCN = PORTB;
+    bot->portCN = 1;
     Bot_UART_Write(bot, "Bot Initialized...\r\n");
     uint8_t whoami[2] = {0};
     IMU_Init(bot->asa, &bot->pos[2], whoami);
@@ -70,11 +70,11 @@ int main() {
 
 void Master_Init() {
     bot = malloc(sizeof(struct Bot));
-    bot->state = IDLE;//STATE_UART_MASK;		// .uartState=0 in prod
+    bot->state = INIT;//STATE_UART_MASK;		// .uartState=0 in prod
+    Bot_FIR_Init(bot);
     float startMap[2] = { -MAP_SIZE / 2, MAP_SIZE / 2 };
-    BitMap_Initialize(bot, &bot->currentMap, startMap);
+    BitMap_Initialize(bot, &bot->currentMaps[0], startMap);
     Bot_Map_Required(bot);
-    bot->inputPos[0] = 2.0;
 }
 
 void SYS_Unlock() {
@@ -93,32 +93,36 @@ void SYS_Lock() {
 void __ISR(_TIMER_1_VECTOR, IPL2SOFT) TMR1_IntHandler() {
     IFS0CLR = _IFS0_T1IF_MASK;
     bot->count++;
-    Bot_Pos_Update(bot);
-    if (bot->count % 9) {
+    
+    // bot us update at 2 Hz
+    if (bot->count % (FREQ / 2) == 0) {
 	bot->usState = 0;
 	Ultrasonic_Trigger();
     }
-    Bot_Controller(bot);
-    if (bot->count > FREQ) {
-	// 1 Hz
+    
+    // bot odo update adn status display at 5 Hz
+    if (bot->count % (FREQ / 5) == 0) {
+	Odometer_Read(5, bot->odo);
+	//Bot_Display_Status(bot);
+	Bot_Display_BitMap(bot);
+    }
+    
+    // bot pos update and controller at 10 Hz
+    Bot_Pos_Update(bot, bot->count, 0);
+    Bot_Controller(bot, 0);
+    
+    // bot battery read at 1 Hz
+    if (bot->count % FREQ == 0) {
 	bot->time++;
-	Odometer_Read(bot->odo);
-	Bot_Display_Status(bot);
+	if (bot->time == 3) {
+	    for (uint8_t i = 0; i < 6; i++) bot->bias[i] /= bot->numBias;
+	    bot->bias[2] *= M_PI / 180.0;
+	    bot->state = IDLE;
+	}
 	AD1CON1SET = _AD1CON1_SAMP_MASK;
-	/*if (bot->time++ == 3) {
-	    bot->state = NAVIGATE;
-	    bot->bias[0] /= bot->numBias;
-	    bot->bias[1] /= bot->numBias;
-	    bot->bias[2] *= M_PI / (180.0 * bot->numBias);
-	}*/
-	
-	
 	if (bot->state & STATE_UART_MASK) Bot_UART_Send_Status(bot);
-	//Bot_Display_BitMap(bot.currentMap); 
-	/*for (char i = 0; i < 4; i++)
-	    if (ProbMap_Contains(bot.localMaps[i], bot.pos))
-		Bot_Display_ProbMap(bot.localMaps[i]);*/
 	bot->count = 0;
+	bot->portCN = 1;
     }
 }
 
@@ -131,8 +135,8 @@ void __ISR(_TIMER_5_VECTOR, IPL2SOFT) TMR5_IntHandler() {
 	//if (bot->distances[bot->usState] > MAX_US_DIST || bot->distances[bot->usState] < MIN_US_DIST) bot->distances[bot->usState] = MAX_US_DIST;
 
 	/* check if all readings taken, update map */
-	bot->usState++;// = bot->usState + 1) % US_SENSORS;
-	//if (bot->usState == 0) Bot_Map_Update(bot);
+	bot->usState = (bot->usState + 1) % US_SENSORS;
+	if (bot->usState == 0) Bot_Map_Update(bot);
     }
 }
 
@@ -146,7 +150,7 @@ void __ISR(_ADC_VECTOR, IPL2SOFT) ADC_IntHandler() {
 
 /* User */
 void __ISR(_CHANGE_NOTICE_VECTOR, IPL2SOFT) CNB_IntHandler() {
-    if ((bot->portCN & 0x20) && !(PORTB & 0x20)) {
+    if (bot->portCN && !(PORTB & 0x20)) {
 	/* button press occured */
 	/*free(bot);
 	SYS_Unlock();
@@ -154,22 +158,10 @@ void __ISR(_CHANGE_NOTICE_VECTOR, IPL2SOFT) CNB_IntHandler() {
 	volatile int * p = &RSWRST;
 	*p;
 	while (1); */
-	bot->state ^= STATE_MASK0;
-	switch (bot->state & STATE_MASK) {
-	    case IDLE: {
-		bot->numBias = 0;
-		for (int i = 0; i < 6; i++) bot->bias[i] = 0;
-		break;
-	    }
-	    
-	    case NAVIGATE: {
-		for (uint8_t i = 0; i < 6; i++) bot->bias[i] /= bot->numBias;
-		bot->bias[2] *= M_PI / 180.0;
-		break;
-	    }
-	}
+	char newState = ((bot->state & STATE_MASK) == IDLE) ? NAVIGATE : IDLE;
+	bot->state = (bot->state & ~STATE_MASK) | newState;
+	bot->portCN = 0;
     }
-    bot->portCN = PORTB;
     IFS1CLR = _IFS1_CNBIF_MASK;
 }
 

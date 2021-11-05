@@ -35,7 +35,7 @@ void IMU_Init(float asa[3], float * yaw, uint8_t whoami[2]) {
 	I2C_Read(MAG_AD, STATUS_2_AD, &status, 1);
     }
     int16_t val = (data[1] << 8) | data[0];
-    *yaw = (float)val * asa[2] * SCALE;
+    //*yaw = (float)val * asa[2] * SCALE;
 }
 
 void IMU_Read(float gyro[3], float acc[3], float mag[3], float asa[3]) {

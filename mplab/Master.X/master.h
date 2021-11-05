@@ -19,9 +19,9 @@
 /* definitions */
 #define SYSCLK 64000000l
 #define PBCLK 32000000l
-#define TMR1_PR 16666
-#define FREQ PBCLK / (64.0 * TMR1_PR)
-#define DT 1.0 / FREQ    
+#define TMR1_PR 50000
+#define FREQ 10
+#define DT 0.1   
 #define US_TRIG_T 640           // ultrasonic trigger
 #define US_SENSORS 3
 #define SENSOR_OFFSET 40. * M_PI / 180.  // angle offset between two sensors

@@ -53,7 +53,7 @@ void Init(unsigned char * buf) {
     
     /* Sampling timer */
     TMR1 = 0x0;
-    PR1 = TMR1_PR;		// f = 30 Hz
+    PR1 = TMR1_PR;		// f = 10 Hz
     T1CON = 0x8020;		// 1:64 prescaler = 500 kHz (reset to 0x8020)
     
     /* Ultrasonic */
@@ -183,9 +183,9 @@ void Ultrasonic_Trigger() {
     LATBCLR = _LATB_LATB10_MASK;
 }
 
-void Odometer_Read(uint8_t odo[2]) {
-    odo[0] = TMR2;
-    odo[1] = TMR4;
+void Odometer_Read(uint8_t times, uint8_t odo[2]) {
+    odo[0] = TMR2 * times;
+    odo[1] = TMR4 * times;
     TMR2 = 0x0;
     TMR4 = 0x0;
 }

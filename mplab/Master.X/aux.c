@@ -13,8 +13,8 @@ float normAngle(float x) {
     return x - M_PI;
 }
 
-float getDistance(float x1, float y1, float x2, float y2) {
-    return sqrtf(powf(x1 - x2, 2) + powf(y1 - y2, 2));
+float getDistance(float pos1[2], float pos2[2]) {
+    return sqrtf(powf(pos1[0] - pos2[0], 2) + powf(pos1[1] - pos2[1], 2));
 }
 
 char distanceToPos(float result[][2], float botPos[3], float * valid, float * distances) {
@@ -46,6 +46,15 @@ float Box_Muller(float mu, float sigma) {
 void delay(long us) {
     long count = us * SYSCLK / 16000000;
     while (count--);
+}
+
+float ideal_lowpass(float fcNew, uint8_t n) {
+    if (n == 0) return 2*fcNew;
+    return 2*fcNew*sin(2*M_PI*fcNew*n) / (2*M_PI*fcNew*n);
+}
+
+float hamming(uint8_t n) {
+    return 0.53 + 0.46*cos(2*M_PI*n / FIR_N);
 }
 
 /*

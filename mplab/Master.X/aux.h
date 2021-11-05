@@ -7,11 +7,13 @@
 /* helper functions */
 float getAngle(float x1, float y1, float x2, float y2);
 float normAngle(float x);
-float getDistance(float x1, float y1, float x2, float y2);
+float getDistance(float pos1[2], float pos2[2]);
 char distanceToPos(float result[][2], float botPos[3], float * valid, float * distances);
 char Multivariate_Gaussian(float meanX, float meanY, float posX, float posY);
 float Box_Muller(float mu, float sigma);
 void delay(long us);
+float ideal_lowpass(float fcNew, uint8_t i);
+float hamming(uint8_t i);
 void matrix_mul( int nRows,  int nCols, int nAdd, float result[][nCols], float mat1[][nAdd], float mat2[][nCols]);
 /*
 void matrix_plus(int len, float result[][len], float mat1[][len], float mat2[][len]);
