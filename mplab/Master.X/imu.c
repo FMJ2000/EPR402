@@ -24,13 +24,13 @@ void IMU_Init(float asa[3], float * yaw, uint8_t whoami[2]) {
     
     // test everything is working
     I2C_Read(MPU9250_AD, WHO_AM_I_AD, whoami, 1);
-    I2C_Read(MAG_AD, WIA_AD, &whoami[1], 1);
     
     // set initial yaw
     uint8_t status;
     uint8_t data[2];
     I2C_Read(MAG_AD, STATUS_1_AD, &status, 1);
     if ((status & DATA_READY) == DATA_READY) {
+	I2C_Read(MAG_AD, WIA_AD, &whoami[1], 1);
 	I2C_Read(MAG_AD, HZL_AD, data, 2);
 	I2C_Read(MAG_AD, STATUS_2_AD, &status, 1);
     }

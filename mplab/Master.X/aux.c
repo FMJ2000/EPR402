@@ -17,13 +17,12 @@ float getDistance(float pos1[2], float pos2[2]) {
     return sqrtf(powf(pos1[0] - pos2[0], 2) + powf(pos1[1] - pos2[1], 2));
 }
 
-char distanceToPos(float result[][2], float botPos[3], float * valid, float * distances) {
+char distanceToPos(float result[][2], float botPos[3], float sensorOffsets[3], float * distances) {
     char index = 0;
     for (char i = 0; i < US_SENSORS; i++) {
 	if (distances[i] >= MIN_US_DIST && distances[i] <= MAX_US_DIST) {
 	    result[i][0] = botPos[0] + distances[i] * cos(sensorOffsets[i] - botPos[2]);
 	    result[i][1] = botPos[1] + distances[i] * sin(sensorOffsets[i] - botPos[2]);
-	    valid[i] = 1;
 	    index++;
 	}
     }

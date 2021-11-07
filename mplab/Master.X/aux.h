@@ -8,7 +8,7 @@
 float getAngle(float x1, float y1, float x2, float y2);
 float normAngle(float x);
 float getDistance(float pos1[2], float pos2[2]);
-char distanceToPos(float result[][2], float botPos[3], float * valid, float * distances);
+char distanceToPos(float result[][2], float botPos[3], float sensorOffsets[3], float * distances);
 char Multivariate_Gaussian(float meanX, float meanY, float posX, float posY);
 float Box_Muller(float mu, float sigma);
 void delay(long us);

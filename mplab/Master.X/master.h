@@ -25,11 +25,10 @@
 #define US_TRIG_T 640           // ultrasonic trigger
 #define US_SENSORS 3
 #define SENSOR_OFFSET 40. * M_PI / 180.  // angle offset between two sensors
-#define SENSOR_ANGLE 15. * M_PI / 180.
+#define SENSOR_ANGLE 20. * M_PI / 180.
 
 /* static global variables/constants */
 static struct Bot * bot;
-static float sensorOffsets[US_SENSORS + 1] = { SENSOR_OFFSET, 0.0, -SENSOR_OFFSET, M_PI };
 static float sensorModifier[US_SENSORS][US_SENSORS] = { 
     {3, 1, -3},
     {0.5, 1, 0.5},

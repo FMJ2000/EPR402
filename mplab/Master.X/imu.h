@@ -23,8 +23,8 @@
 #define INT_ENABLE 0x38
 #define USER_CTRL_AD 0x6A
 #define WHO_AM_I_AD 0x75    // should return 0x71 (113)
-#define ACCEL_SENS 8192.0f
-#define GYRO_SENS 131.0f
+#define ACCEL_SENS 4096.0f
+#define GYRO_SENS 65.536f
 
 //Magnetometer
 #define MAG_AD 0x0C
