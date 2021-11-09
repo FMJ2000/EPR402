@@ -73,7 +73,7 @@ void Master_Init() {
     bot->state = INIT;//STATE_UART_MASK;		// .uartState=0 in prod
     float sensorOffsets[3] = { SENSOR_OFFSET, 0.0, -SENSOR_OFFSET };
     memcpy(bot->sensorOffsets, sensorOffsets, sizeof(bot->sensorOffsets));
-    float obsModifier[8] = { 0, -0.8727, 1.2217, -1.2217, 0.8727, 1.571, 1.2217, 1.571 };
+    float obsModifier[8] = { 0, -0.8727, 1.2217, -1.2217, 0.8727, 2.7053, 1.2217, 2.7053 };
     memcpy(bot->obsModifier, obsModifier, sizeof(bot->obsModifier));
     /*bot->angleModifier = (float [8]){3*M_PI/4, M_PI/2, M_PI/4, 0, -M_PI/4, M_PI/2, -3*M_PI/4, M_PI};
     const uint8_t posModifier[8][2] = {
@@ -86,12 +86,12 @@ void Master_Init() {
         {-1, -1},
         {-1, 0}
     };
-    memcpy(&bot->posModifier, &posModifier, sizeof(bot->posModifier));
+    memcpy(&bot->posModifier, &posModifier, sizeof(bot->posModifier));*/
     Bot_FIR_Init(bot);
     float startMap[2] = { -MAP_SIZE / 2, MAP_SIZE / 2 };
     BitMap_Initialize(bot, &bot->currentMaps[0], startMap);
-    Bot_Map_Required(bot);*/
-    //bot->inputPos[0][0] = -0.6;
+    Bot_Map_Required(bot);
+    //bot->goal[0] = -0.6;
 }
 
 void SYS_Unlock() {
@@ -118,12 +118,13 @@ void __ISR(_TIMER_1_VECTOR, IPL2SOFT) TMR1_IntHandler() {
     }
     
     // bot pos update and controller at 20 Hz
-    Bot_Pos_Update(bot, bot->count, 0);
-    Bot_Controller(bot, 0);
+    Bot_Pos_Update(bot, bot->count);
+    Bot_Map_Update(bot);
+    Bot_Controller(bot);
     
     // bot odo update and status display at 5 Hz
     if (bot->count % (FREQ / 5) == 0) {
-	Odometer_Read(5, bot->odo);
+	if ((bot->state & STATE_MASK) == NAVIGATE) Bot_Odometer_Read(bot, 5);
 	Bot_Display_Status(bot);
 	//Bot_Display_BitMap(bot);
     }

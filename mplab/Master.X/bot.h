@@ -22,12 +22,12 @@
 #define K_ACC 0.2
 #define K_GYRO 0.8
 #define K_MAG 0.02
-#define K_VEL 0.5
+#define K_VEL 1.5
 
 // pi controller
-#define K_OFFSET 0.2
+#define K_OFFSET 0.18
 #define K_TURN 4
-#define K_DIST 0.024
+#define K_DIST 0.005
 
 // FIR filter
 #define FIR_F 10.0
@@ -35,7 +35,9 @@
 #define FIR_FS 2.0
 #define FIR_N 18
 
-#define ERROR_MAX 0.3491                // 20 deg
+#define ERROR_COLLIDE 0.2618            // 15 deg
+#define ERROR_MIN 0.3491                // 20 deg
+#define ERROR_MAX 2.7925                // 160 deg
 #define MIN_DIST 0.04
 #define MIN_OBST_DIST 0.1
 #define MIN_GOAL_DIST 0.1
@@ -51,13 +53,14 @@
 #define ADC_MIN 120
 #define ADC_SCALE 100.0 / (ADC_MAX - ADC_MIN)
 #define DIST_CORR_OFFSET 0.03
+#define ODO_WEIGHT 0.8
  
 #define US_SENSORS 3
 #define SENSOR_OFFSET 40. * M_PI / 180.  // angle offset between two sensors
-#define SENSOR_ANGLE 20. * M_PI / 180.
+#define SENSOR_ANGLE 15. * M_PI / 180.
 #define SOUND_SPEED 1.65e-4              // TMR5*SOUND_SPEED for distance
-#define MAP_SIZE 0.64
-#define MAP_RES 0.04
+#define MAP_SIZE 1.28
+#define MAP_RES 0.08
 #define MAP_UNITS 16
 #define MAP_UNITS_BIT 4
 #define DEFAULT_VAL 0x07
@@ -107,6 +110,7 @@ struct Bot {
     float gyro[3];
     float acc[3];
     float vel[3];              // prior velocity
+    float vEst[3];
     float mag[3];
     float asa[3];               // magnetometer adjustment
     float bias[6];
@@ -118,8 +122,7 @@ struct Bot {
     uint8_t obstructed;                     // bitwise obstacle flags
     char changeLock;                        // do not use maps while recreating them
     struct BitMap * currentMaps[4];             // current bitmap of bot
-    struct ProbMap * localMaps[4];              // modifiable copies in between samples (0 is current map, 1-3 viewed maps)
-    char localViewMaps[4][MAP_UNITS][MAP_UNITS_BIT];
+    char viewMaps[4][MAP_UNITS][MAP_UNITS_BIT];
     uint8_t mapsDir;
     unsigned int numMaps;
     float battery;
@@ -137,7 +140,7 @@ struct Bot {
     float sensorOffsets[US_SENSORS];
     float obsModifier[8];
     float obsAngles[2];
-    float goalAngle;
+    uint8_t collisionCount[2];
     uint8_t posIndex;
     
     /* filter */
@@ -150,28 +153,23 @@ struct Bot {
 };
 
 /* bot functions */
-void Bot_Pos_Update(struct Bot * bot, uint8_t startIndex, char verbose);
+void Bot_Pos_Update(struct Bot * bot, uint8_t startIndex);
 float Bot_InputPos_Update(struct Bot * bot);
 void Bot_Map_Required(struct Bot * bot);
 void Bot_Reinforce_Neighbors(struct BitMap * map);
 void Bot_Map_Update(struct Bot * bot);
-void Bot_Optimise_Local(struct Bot * bot);
-void Bot_Controller(struct Bot * bot, char verbose);
+void Bot_Controller(struct Bot * bot);
 void Bot_Vector_Angles(struct Bot * bot, float angles[US_SENSORS]);
 void Bot_Display_Status(struct Bot * bot);
 void Bot_UART_Send_Status(struct Bot * bot);
 void Bot_UART_Write(struct Bot * bot, char * format, ...);
 void Bot_Display_BitMap(struct Bot * bot);
-void Bot_Display_ProbMap(struct ProbMap * map);
 void Bot_Navigate(struct Bot * bot, uint8_t index) ;
-char Bot_DFS(struct Bot * bot, uint8_t pos[3], uint8_t depth);
-char Bot_Frontier(struct Bot * bot, uint8_t pos[3], uint8_t frontier[3][3]);
+uint8_t Bot_Odometer_Read(struct Bot * bot, uint8_t times);
 
 /* map functions */
 void BitMap_Initialize(struct Bot * bot, struct BitMap ** ptr, float pos[2]);
-void ProbMap_Initialize(struct ProbMap ** ptr, float pos[2], char fillVal);
 char BitMap_Contains(struct BitMap * map, uint8_t index[2], float pos[2]);
-char ProbMap_Contains(struct ProbMap * map, uint8_t index[2], float pos[2]);
 char Bitmap_At(struct BitMap * map, uint8_t index[2]);
 void BitMap_Set(struct BitMap * map, uint8_t index[2], char val);
 char BitMap_IndexToPos(struct BitMap * map, float pos[2], uint8_t index[2]);
