@@ -140,9 +140,31 @@ void Bot_Reinforce_Neighbors(struct BitMap * map) {
 /* add areas cleaned to currentMaps */
 void Bot_Map_Update(struct Bot * bot) {
     // check if out of map bounds and turned too much 
-    uint8_t index[2] = {0};
+    uint8_t index[2];
     while ((fabs(bot->pos[2] - bot->dPos[2]) > SENSOR_OFFSET) || !BitMap_Contains(bot->currentMaps[0], index, bot->pos)) Bot_Map_Required(bot);
-    BitMap_Set(bot->currentMaps[0], index, 0x10);
+    
+    if (bot->posIndex[0] != index[0] || bot->posIndex[1] != index[1]) {
+	memcpy(bot->posIndex, index, sizeof(uint8_t) * 2);
+	// set cleaned and obstructed bits
+	BitMap_Set(bot->currentMaps[0], bot->posIndex, 0x10);
+	float angle, minAngle = M_PI;
+	for (uint8_t i = 0; i < 8; i++) {
+	    angle = fabs(bot->angleModifier[i] - bot->pos[2]);
+	    if (angle < minAngle) {
+		minAngle = angle;
+		bot->dirIndex = i;
+	    }
+	}
+	if ((bot->obstructed >> 1) & 0x1) {
+	    uint8_t obsIndex[3] = { 0, bot->posIndex[0] + bot->posModifier[bot->dirIndex][0], bot->posIndex[1] + bot->posModifier[bot->dirIndex][1] };
+	    if (obsIndex[1] < 0 || obsIndex[1] >= MAP_UNITS || obsIndex[2] < 0 || obsIndex[2] >= MAP_UNITS) {
+		obsIndex[0] = ((bot->dirIndex % 4) + 2 - 2*(bot->mapsDir)) % 4;
+		obsIndex[1] = (obsIndex[1] < 0) ? MAP_UNITS : (obsIndex[1] >= MAP_UNITS) ? MAP_UNITS - 1 : obsIndex[1];
+		obsIndex[2] = (obsIndex[2] < 0) ? MAP_UNITS : (obsIndex[2] >= MAP_UNITS) ? MAP_UNITS - 1 : obsIndex[2];
+	    }
+	    BitMap_Set(bot->currentMaps[obsIndex[0]], &obsIndex[1], 0x11);
+	}
+    }
 }
 
 void Bot_Controller(struct Bot * bot) { 

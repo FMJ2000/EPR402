@@ -100,6 +100,7 @@ struct Bot {
     /* positioning */
     unsigned long time;
     float pos[3];               // x, y, rot
+    uint8_t posIndex[2];        // position index on map
     float dPos[3];              // pos at last desired pos, angle at last map
     float goal[2];       
     uint8_t odo[2];
@@ -124,6 +125,7 @@ struct Bot {
     struct BitMap * currentMaps[4];             // current bitmap of bot
     char viewMaps[4][MAP_UNITS][MAP_UNITS_BIT];
     uint8_t mapsDir;
+    uint8_t dirIndex;
     unsigned int numMaps;
     float battery;
     
@@ -141,7 +143,6 @@ struct Bot {
     float obsModifier[8];
     float obsAngles[2];
     uint8_t collisionCount[2];
-    uint8_t posIndex;
     
     /* filter */
     float firW[FIR_N / 2];
