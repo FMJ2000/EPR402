@@ -26,6 +26,7 @@
 
 // pi controller
 #define K_OFFSET 0.18
+#define K_INT 0.09
 #define K_TURN 4
 #define K_DIST 0.005
 
@@ -35,7 +36,12 @@
 #define FIR_FS 2.0
 #define FIR_N 18
 
-#define ERROR_COLLIDE 0.2618            // 15 deg
+// mapping
+#define DIR_DIV 0.785398				// 2*pi / 8
+#define DIR_OFFSET 4.71239				// 3*pi / 2
+
+// navigation
+#define ERROR_COLLIDE 0.785498          // 45 deg
 #define ERROR_MIN 0.3491                // 20 deg
 #define ERROR_MAX 2.7925                // 160 deg
 #define MIN_DIST 0.04
@@ -71,7 +77,7 @@
 
 #define BUF_LEN 1024
 #define OLED_LINE_LEN 24
-#define INPUT_LEN 3
+#define GOAL_LEN 5
 
 // state
 #define INIT 0
@@ -102,11 +108,10 @@ struct Bot {
     float pos[3];               // x, y, rot
     uint8_t posIndex[2];        // position index on map
     float dPos[3];              // pos at last desired pos, angle at last map
-    float goal[2];       
+    float goal[GOAL_LEN][2];       
     uint8_t odo[2];
-    unsigned int execIndex;
-    unsigned int addIndex;
     float ePos[2];              // pid error r, theta
+    float ePosInt[2];			// integral of error
     float duty[2];
     float gyro[3];
     float acc[3];
@@ -120,10 +125,8 @@ struct Bot {
     /* mapping */
     char usState;
     float distances[3];
-    uint8_t obstructed;                     // bitwise obstacle flags
-    char changeLock;                        // do not use maps while recreating them
-    struct BitMap * currentMaps[4];             // current bitmap of bot
-    char viewMaps[4][MAP_UNITS][MAP_UNITS_BIT];
+    uint8_t obstructed;                     	// bitwise obstacle flags
+    struct BitMap * currentMaps[9];             // current bitmap of bot
     uint8_t mapsDir;
     uint8_t dirIndex;
     unsigned int numMaps;
@@ -155,24 +158,25 @@ struct Bot {
 
 /* bot functions */
 void Bot_Pos_Update(struct Bot * bot, uint8_t startIndex);
-float Bot_InputPos_Update(struct Bot * bot);
+void Bot_Controller(struct Bot * bot);
+void Bot_Map_Update(struct Bot * bot, uint8_t sensorIndex);
 void Bot_Map_Required(struct Bot * bot);
 void Bot_Reinforce_Neighbors(struct BitMap * map);
-void Bot_Map_Update(struct Bot * bot);
-void Bot_Controller(struct Bot * bot);
+void Bot_Navigate(struct Bot * bot);
 void Bot_Vector_Angles(struct Bot * bot, float angles[US_SENSORS]);
 void Bot_Display_Status(struct Bot * bot);
 void Bot_UART_Send_Status(struct Bot * bot);
 void Bot_UART_Write(struct Bot * bot, char * format, ...);
 void Bot_Display_BitMap(struct Bot * bot);
-void Bot_Navigate(struct Bot * bot, uint8_t index) ;
 uint8_t Bot_Odometer_Read(struct Bot * bot, uint8_t times);
 
 /* map functions */
 void BitMap_Initialize(struct Bot * bot, struct BitMap ** ptr, float pos[2]);
 char BitMap_Contains(struct BitMap * map, uint8_t index[2], float pos[2]);
 char Bitmap_At(struct BitMap * map, uint8_t index[2]);
+char BitMap_AtRelative(struct Bot * bot, uint8_t dirIndex);
 void BitMap_Set(struct BitMap * map, uint8_t index[2], char val);
+void BitMap_SetRelative(struct Bot * bot, uint8_t dirIndex, char val);
 char BitMap_IndexToPos(struct BitMap * map, float pos[2], uint8_t index[2]);
 
 /* filter functions */

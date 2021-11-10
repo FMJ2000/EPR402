@@ -48,50 +48,50 @@
 #include "master.h"
 
 int main() {
-    delay(100000l);
-    
-    Master_Init();
-    Init(bot->buf);
-    bot->portCN = 1;
-    Bot_UART_Write(bot, "Bot Initialized...\r\n");
-    uint8_t whoami[2] = {0};
-    IMU_Init(bot->asa, &bot->pos[2], whoami);
-    Bot_UART_Write(bot, "Peripherals Initialized...\r\n");
-    
-    OLED_Init();
-    OLED_ClearDisplay();
-    snprintf(bot->buf, 100, "imu %d, mag %d", whoami[0], whoami[1]);
-    OLED_Write_Text(0, 0, bot->buf);
-    OLED_Update();
-    
-    for (;;);
-    return EXIT_SUCCESS;
+	delay(100000l);
+
+	Master_Init();
+	Init(bot->buf);
+	bot->portCN = 1;
+	Bot_UART_Write(bot, "Bot Initialized...\r\n");
+	uint8_t whoami[2] = {0};
+	IMU_Init(bot->asa, &bot->pos[2], whoami);
+	Bot_UART_Write(bot, "Peripherals Initialized...\r\n");
+
+	OLED_Init();
+	OLED_ClearDisplay();
+	snprintf(bot->buf, 100, "imu %d, mag %d", whoami[0], whoami[1]);
+	OLED_Write_Text(0, 0, bot->buf);
+	OLED_Update();
+
+	for (;;);
+	return EXIT_SUCCESS;
 }
 
 void Master_Init() {
-    bot = malloc(sizeof(struct Bot));
-    bot->state = INIT;//STATE_UART_MASK;		// .uartState=0 in prod
-    float sensorOffsets[3] = { SENSOR_OFFSET, 0.0, -SENSOR_OFFSET };
-    memcpy(bot->sensorOffsets, sensorOffsets, sizeof(bot->sensorOffsets));
-    float obsModifier[8] = { 0, -0.8727, 1.2217, -1.2217, 0.8727, 2.7053, 1.2217, 2.7053 };
-    memcpy(bot->obsModifier, obsModifier, sizeof(bot->obsModifier));
-    bot->angleModifier = (float [8]){3*M_PI/4, M_PI/2, M_PI/4, 0, -M_PI/4, M_PI/2, -3*M_PI/4, M_PI};
-    const uint8_t posModifier[8][2] = {
-        {-1, 1},
-        {0, 1},
-        {1, 1},
-        {1, 0},
-        {1, -1},
-        {0, -1},
-        {-1, -1},
-        {-1, 0}
-    };
-    memcpy(&bot->posModifier, &posModifier, sizeof(bot->posModifier));
-    Bot_FIR_Init(bot);
-    float startMap[2] = { -MAP_SIZE / 2, MAP_SIZE / 2 };
-    BitMap_Initialize(bot, &bot->currentMaps[0], startMap);
-    Bot_Map_Required(bot);
-    //bot->goal[0] = -0.6;
+	bot = malloc(sizeof(struct Bot));
+	bot->state = INIT;//STATE_UART_MASK;		// .uartState=0 in prod
+	float sensorOffsets[3] = { SENSOR_OFFSET, 0.0, -SENSOR_OFFSET };
+	memcpy(bot->sensorOffsets, sensorOffsets, sizeof(bot->sensorOffsets));
+	float obsModifier[8] = { 0, -0.8727, 1.2217, -1.2217, 0.8727, 2.7053, 1.2217, 2.7053 };
+	memcpy(bot->obsModifier, obsModifier, sizeof(bot->obsModifier));
+	bot->angleModifier = (float [8]){3*M_PI/4, M_PI/2, M_PI/4, 0, -M_PI/4, M_PI/2, -3*M_PI/4, M_PI};
+	const uint8_t posModifier[8][2] = {
+		{-1, 1},
+		{0, 1},
+		{1, 1},
+		{1, 0},
+		{1, -1},
+		{0, -1},
+		{-1, -1},
+		{-1, 0}
+	};
+	memcpy(&bot->posModifier, &posModifier, sizeof(bot->posModifier));
+	Bot_FIR_Init(bot);
+	float startMap[2] = { -MAP_SIZE / 2, MAP_SIZE / 2 };
+	BitMap_Initialize(bot, &bot->currentMaps[0], startMap);
+	Bot_Map_Required(bot);
+	//bot->goal[0] = -0.6;
 }
 
 void SYS_Unlock() {
@@ -108,87 +108,85 @@ void SYS_Lock() {
 
 /* Sample timer */
 void __ISR(_TIMER_1_VECTOR, IPL2SOFT) TMR1_IntHandler() {
-    IFS0CLR = _IFS0_T1IF_MASK;
-    bot->count++;
-    
-    // bot us update at 4 Hz
-    if (bot->count % (FREQ / 4) == 0) {
-	bot->usState = 0;
-	Ultrasonic_Trigger();
-    }
-    
-    // bot pos update and controller at 20 Hz
-    Bot_Pos_Update(bot, bot->count);
-    Bot_Map_Update(bot);
-    Bot_Controller(bot);
-    
-    // bot odo update and status display at 5 Hz
-    if (bot->count % (FREQ / 5) == 0) {
-	if ((bot->state & STATE_MASK) == NAVIGATE) Bot_Odometer_Read(bot, 5);
-	Bot_Display_Status(bot);
-	//Bot_Display_BitMap(bot);
-    }
-    
-    // bot battery read at 1 Hz
-    if (bot->count % FREQ == 0) {
+	IFS0CLR = _IFS0_T1IF_MASK;
+	bot->count++;
+
+	// bot us update at 4 Hz
+	if (bot->count % (FREQ / 4) == 0) {
+		bot->usState = 0;
+		Ultrasonic_Trigger();
+	}
+
+	// bot pos update and controller at 20 Hz
+	Bot_Pos_Update(bot, bot->count);
+	Bot_Controller(bot);
+
+	// bot odo update and status display at 5 Hz
+	if (bot->count % (FREQ / 5) == 0) {
+		if ((bot->state & STATE_MASK) == NAVIGATE) Bot_Odometer_Read(bot, 5);
+		Bot_Display_Status(bot);
+		//Bot_Display_BitMap(bot);
+	}
+
+	// bot battery read at 1 Hz
+	if (bot->count % FREQ == 0) {
 	bot->time++;
 	if (bot->time == 3) {
-	    for (uint8_t i = 0; i < 6; i++) {
-		bot->bias[i] /= bot->numBias;
-		if (i < 3) bot->bias[i] *= M_PI / 180.0;
-	    }
-	    bot->state = (bot->state & ~STATE_MASK) | NAVIGATE;
+		for (uint8_t i = 0; i < 6; i++) {
+			bot->bias[i] /= bot->numBias;
+			if (i < 3) bot->bias[i] *= M_PI / 180.0;
+		}
+		bot->state = (bot->state & ~STATE_MASK) | NAVIGATE;
 	}
 	AD1CON1SET = _AD1CON1_SAMP_MASK;
 	//Bot_Optimise_Local(bot);
 	if (bot->state & STATE_UART_MASK) Bot_UART_Send_Status(bot);
 	bot->count = 0;
 	bot->portCN = 1;
-    }
+	}
 }
 
 /* Ultrasonic echo timer */
 void __ISR(_TIMER_5_VECTOR, IPL2SOFT) TMR5_IntHandler() {
-    IFS0CLR = _IFS0_T5IF_MASK;
-    if (bot->usState < US_SENSORS) {
+	IFS0CLR = _IFS0_T5IF_MASK;
 	bot->distances[bot->usState] = TMR5 * SOUND_SPEED;
 	TMR5 = 0;
 	//if (bot->distances[bot->usState] > MAX_US_DIST || bot->distances[bot->usState] < MIN_US_DIST) bot->distances[bot->usState] = MAX_US_DIST;
 
 	/* check if all readings taken, update map */
-	if ((bot->state & STATE_MASK) == NAVIGATE) Bot_Navigate(bot, bot->usState);
+	if ((bot->state & STATE_MASK) == NAVIGATE) {
+		Bot_Map_Update(bot, bot->usState);
+		Bot_Navigate(bot);
+	}
 	bot->usState = (bot->usState + 1) % US_SENSORS;
-    }
 }
 
 /* Battery sampler */
 void __ISR(_ADC_VECTOR, IPL2SOFT) ADC_IntHandler() {
-    if (IFS0bits.AD1IF) {
-	IFS0CLR = _IFS0_AD1IF_MASK;
-	bot->battery = (((ADC1BUF0 >> 8) & 0xFF) - ADC_MIN) * ADC_SCALE;
-    }
+	if (IFS0bits.AD1IF) {
+		IFS0CLR = _IFS0_AD1IF_MASK;
+		bot->battery = (((ADC1BUF0 >> 8) & 0xFF) - ADC_MIN) * ADC_SCALE;
+	}
 }
 
 /* User */
 void __ISR(_CHANGE_NOTICE_VECTOR, IPL2SOFT) CNB_IntHandler() {
-    if (bot->portCN && !(PORTB & 0x20)) {
-	/* button press occured */
-	/*free(bot);
-	SYS_Unlock();
-	RSWRSTSET = 1;
-	volatile int * p = &RSWRST;
-	*p;
-	while (1); */
-	char newState = ((bot->state & STATE_MASK) == IDLE) ? NAVIGATE : IDLE;
-	bot->state = (bot->state & ~STATE_MASK) | newState;
-	bot->portCN = 0;
-    }
-    IFS1CLR = _IFS1_CNBIF_MASK;
+	if (bot->portCN && !(PORTB & 0x20)) {
+		/* button press occured */
+		/*free(bot);
+		SYS_Unlock();
+		RSWRSTSET = 1;
+		volatile int * p = &RSWRST;
+		*p;
+		while (1); */
+		char newState = ((bot->state & STATE_MASK) == IDLE) ? NAVIGATE : IDLE;
+		bot->state = (bot->state & ~STATE_MASK) | newState;
+		bot->portCN = 0;
+	}
+	IFS1CLR = _IFS1_CNBIF_MASK;
 }
 
 void __ISR(_DMA1_VECTOR, IPL2SOFT) DMA_IntHandler() {
-    if (DCH1INT & _DCH1INT_CHBCIF_MASK) {
-	DCH1INTCLR = _DCH1INT_CHBCIF_MASK;
-    }
-    IFS1CLR = _IFS1_DMA1IF_MASK;
+	if (DCH1INT & _DCH1INT_CHBCIF_MASK) DCH1INTCLR = _DCH1INT_CHBCIF_MASK;
+	IFS1CLR = _IFS1_DMA1IF_MASK;
 }

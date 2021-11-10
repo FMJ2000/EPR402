@@ -1,237 +1,128 @@
 #include "bot.h"
 
 void Bot_Pos_Update(struct Bot * bot, uint8_t startIndex) {
-    IMU_Read(bot->gyro, bot->acc, bot->mag, bot->asa);
-    
-    // estimate bias in initialization
-    if ((bot->state & STATE_MASK) == INIT) {
+	IMU_Read(bot->gyro, bot->acc, bot->mag, bot->asa);
+
+	// estimate bias in initialization
+	if ((bot->state & STATE_MASK) == INIT) {
 	for (uint8_t i = 0; i < 3; i++) {
-	    bot->bias[i] += bot->gyro[i];
-	    bot->bias[3+i] += bot->acc[i];
+		bot->bias[i] += bot->gyro[i];
+		bot->bias[3+i] += bot->acc[i];
 	}
 	bot->numBias++;
 	return;
-    }
-    
-     // remove bias and filter magnetometer - assumed to be static
-    for (uint8_t i = 0; i < 3; i++) {
-	bot->gyro[i] -= bot->bias[i];
-	bot->acc[i] -= bot->bias[3+i];
-    }    
-    uint8_t n = (startIndex + 1 < FIR_N) ? startIndex + 1: FIR_N;
-    for (uint8_t i = 0; i < n - 1; i++) bot->firX[i+1] = bot->firX[i];
-    bot->firX[0] = atan2(bot->mag[1], bot->mag[0]);
-    float wMag = Bot_FIR_Filter(bot, n);
-    
-    // fuse wheel angular rate from estimate and odometer
-    float wDc[2] = { bot->duty[0]*VEL_MAX, bot->duty[1]*VEL_MAX };
-    float wOdo[2] = { copysign(1.0, wDc[0]) * bot->odo[0]*ODO_SCALE, copysign(1.0, wDc[1]) * bot->odo[1]*ODO_SCALE };
-    float wVel[2] = {
-	(K_ODO*wOdo[0] + (1 - K_ODO)*wDc[0])*WHEEL_RADIUS,
-	(K_ODO*wOdo[1] + (1 - K_ODO)*wDc[1])*WHEEL_RADIUS
-    };
-   
-    // fuse velocity from estimate and accelerometer
-    bot->vEst[0] = ODO_WEIGHT * 0.5 * (cos(bot->pos[2])*wVel[0] + cos(bot->pos[2])*wVel[1]) + (1 - ODO_WEIGHT) * bot->vEst[0];
-    bot->vEst[1] = ODO_WEIGHT * 0.5 * (sin(bot->pos[2])*wVel[0] + sin(bot->pos[2])*wVel[1]) + (1 - ODO_WEIGHT) * bot->vEst[0];
-    bot->vEst[2] = ODO_WEIGHT * (wVel[1] - wVel[0]) / CHASSIS_LENGTH + (1 - ODO_WEIGHT) * bot->vEst[0];
-    if (fabs(bot->gyro[2]) < ERROR_COLLIDE && fabs(bot->vEst[2]) > 2*ERROR_COLLIDE) bot->collisionCount[0]++;
-    else bot->collisionCount[0] = 0;
-    
-    float vAcc[2] = { 
-	bot->vel[0] + bot->acc[0]*cos(bot->pos[2])*DT - bot->acc[1]*sin(bot->pos[2])*DT,
-	bot->vel[1] + bot->acc[1]*cos(bot->pos[2])*DT + bot->acc[0]*sin(bot->pos[2])*DT
-    };
-    bot->vel[0] = K_ACC*vAcc[0] + (1 - K_ACC)*bot->vEst[0];
-    bot->vel[1] = K_ACC*vAcc[1] + (1 - K_ACC)*bot->vEst[1];
-
-    // fuse angular rate from estimate, gyroscope and magnetometer
-    
-    bot->vel[2] = K_GYRO*bot->gyro[2] + (1 - K_GYRO)*bot->vEst[2];
-
-    // estimate new position
-    for (uint8_t i = 0; i < 3; i++) bot->pos[i] += bot->vel[i] * DT;
-    bot->pos[2] = K_MAG*wMag + (1 - K_MAG)*bot->pos[2];
-    bot->pos[2] = normAngle(bot->pos[2]);
-}
-
-/* determine which maps will form part of supermap 
- * create maps if necessary */
-void Bot_Map_Required(struct Bot * bot) {
-    /* update the current map based on the position of the bot */
-    uint8_t index[2];
-    if (!BitMap_Contains(bot->currentMaps[0], index, bot->pos)) {
-	for (uint8_t i = 0; i < 8; i++) {
-	    if (bot->currentMaps[0]->neighbors[i] && BitMap_Contains(bot->currentMaps[0]->neighbors[i], index, bot->pos)) {
-		bot->currentMaps[0] = bot->currentMaps[0]->neighbors[i];
-		break;
-	    }
 	}
-    }
 
-    /* determine current map corner with smallest view angle */
-    bot->dPos[2] = bot->pos[2];
-    float viewVec[2] = { bot->pos[0] + cos(bot->pos[2]), bot->pos[1] + sin(bot->pos[2]) };
-    float rect[4][2] = {
-	{bot->currentMaps[0]->pos[0], bot->currentMaps[0]->pos[1]},
-	{bot->currentMaps[0]->pos[0] + MAP_SIZE, bot->currentMaps[0]->pos[1]},
-	{bot->currentMaps[0]->pos[0] + MAP_SIZE, bot->currentMaps[0]->pos[1] - MAP_SIZE},
-	{bot->currentMaps[0]->pos[0], bot->currentMaps[0]->pos[1] - MAP_SIZE}
-    };
-    float minAngle = M_PI;
-    bot->mapsDir = 0;
-    for (char i = 0; i < 4; i++) {
-	float angle = getAngle(viewVec[0], viewVec[1], rect[i][0], rect[i][1]);
-	if (angle < minAngle) {
-	    minAngle = angle;
-	    bot->mapsDir = i;
-	}
-    }
+	 // remove bias and filter magnetometer - assumed to be static
+	for (uint8_t i = 0; i < 3; i++) {
+		bot->gyro[i] -= bot->bias[i];
+		bot->acc[i] -= bot->bias[3+i];
+	}    
+	uint8_t n = (startIndex + 1 < FIR_N) ? startIndex + 1: FIR_N;
+	for (uint8_t i = 0; i < n - 1; i++) bot->firX[i+1] = bot->firX[i];
+	bot->firX[0] = atan2(bot->mag[1], bot->mag[0]);
+	float wMag = Bot_FIR_Filter(bot, n);
 
-    /* identify/create bit and prob maps in corresponding direction */
-    char req[3] = {(2*bot->mapsDir + 7) % 8, 2*bot->mapsDir, (2*bot->mapsDir + 1) % 8};
-    for (char i = 0; i < 3; i++) {
-	if (!bot->currentMaps[0]->neighbors[req[i]]) {
-	    float pos[2] = { bot->currentMaps[0]->pos[0] + bot->posModifier[req[i]][0] * MAP_SIZE, bot->currentMaps[0]->pos[1] + bot->posModifier[req[i]][1] * MAP_SIZE };
-	    BitMap_Initialize(bot, &bot->currentMaps[0]->neighbors[req[i]], pos);
-	    bot->currentMaps[0]->neighbors[req[i]]->neighbors[(req[i] + 4) % 8] = bot->currentMaps[0];
-	    Bot_Reinforce_Neighbors(bot->currentMaps[0]->neighbors[req[i]]);
-	}
-	bot->currentMaps[i+1] = bot->currentMaps[0]->neighbors[req[i]];
-    }
-}
+	// fuse wheel angular rate from estimate and odometer
+	float wDc[2] = { bot->duty[0]*VEL_MAX, bot->duty[1]*VEL_MAX };
+	float wOdo[2] = { copysign(1.0, wDc[0]) * bot->odo[0]*ODO_SCALE, copysign(1.0, wDc[1]) * bot->odo[1]*ODO_SCALE };
+	float wVel[2] = {
+		(K_ODO*wOdo[0] + (1 - K_ODO)*wDc[0])*WHEEL_RADIUS,
+		(K_ODO*wOdo[1] + (1 - K_ODO)*wDc[1])*WHEEL_RADIUS
+	};
 
-void Bot_Reinforce_Neighbors(struct BitMap * map) {    
-    /* check if existing neighbor(s) has additional neighbors */
-    for (char i = 0; i < 8; i++) {
-	if (map->neighbors[i]) {
-	    char mIndex = (i + 4) % 8;	// my index relative to neighbor
-	    if (i % 2) {
-		if (map->neighbors[i]->neighbors[(mIndex + 7) % 8]) {
-		    map->neighbors[(i + 2) % 8] = map->neighbors[i]->neighbors[(mIndex + 7) % 8];
-		    map->neighbors[i]->neighbors[(mIndex + 7) % 8]->neighbors[(i + 6) % 8] = map;
-		}
-		if (map->neighbors[i]->neighbors[(mIndex + 1) % 8]) {
-		    map->neighbors[(i + 6) % 8] = map->neighbors[i]->neighbors[(mIndex + 1) % 8];
-		    map->neighbors[i]->neighbors[(mIndex + 1) % 8]->neighbors[(i + 2) % 8] = map;
-		}
-		if (map->neighbors[i]->neighbors[(mIndex + 6) % 8]) {   
-		    map->neighbors[(i + 1) % 8] = map->neighbors[i]->neighbors[(mIndex + 6) % 8];
-		    map->neighbors[i]->neighbors[(mIndex + 6) % 8]->neighbors[(i + 5) % 8] = map;
-		}
-		if (map->neighbors[i]->neighbors[(mIndex + 2) % 8]) {
-		    map->neighbors[(i + 7) % 8] = map->neighbors[i]->neighbors[(mIndex + 2) % 8];
-		    map->neighbors[i]->neighbors[(mIndex + 2) % 8]->neighbors[(i + 3) % 8] = map;
-		}
-	    } else {
-		if (map->neighbors[i]->neighbors[(mIndex + 7) % 8]) {
-		    map->neighbors[(i + 1) % 8] = map->neighbors[i]->neighbors[(mIndex + 7) % 8];
-		    map->neighbors[i]->neighbors[(mIndex + 7) % 8]->neighbors[(i + 5) % 8] = map;
-		}
-		if (map->neighbors[i]->neighbors[(mIndex + 1) % 8]) {
-		    map->neighbors[(i + 7) % 8] = map->neighbors[i]->neighbors[(mIndex + 1) % 8];
-		    map->neighbors[i]->neighbors[(mIndex + 1) % 8]->neighbors[(i + 3) % 8] = map;
-		}
-	    }
-	}
-    }
-}
+	// fuse velocity from estimate and accelerometer
+	bot->vEst[0] = ODO_WEIGHT * 0.5 * (cos(bot->pos[2])*wVel[0] + cos(bot->pos[2])*wVel[1]) + (1 - ODO_WEIGHT) * bot->vEst[0];
+	bot->vEst[1] = ODO_WEIGHT * 0.5 * (sin(bot->pos[2])*wVel[0] + sin(bot->pos[2])*wVel[1]) + (1 - ODO_WEIGHT) * bot->vEst[0];
+	bot->vEst[2] = ODO_WEIGHT * (wVel[1] - wVel[0]) / CHASSIS_LENGTH + (1 - ODO_WEIGHT) * bot->vEst[0];
+	if (fabs(bot->gyro[2]) < ERROR_COLLIDE && fabs(bot->vEst[2]) > 2*ERROR_COLLIDE) bot->collisionCount[0]++;
+	else bot->collisionCount[0] = 0;
 
-/* add areas cleaned to currentMaps */
-void Bot_Map_Update(struct Bot * bot) {
-    // check if out of map bounds and turned too much 
-    uint8_t index[2];
-    while ((fabs(bot->pos[2] - bot->dPos[2]) > SENSOR_OFFSET) || !BitMap_Contains(bot->currentMaps[0], index, bot->pos)) Bot_Map_Required(bot);
-    
-    if (bot->posIndex[0] != index[0] || bot->posIndex[1] != index[1]) {
-	memcpy(bot->posIndex, index, sizeof(uint8_t) * 2);
-	// set cleaned and obstructed bits
-	BitMap_Set(bot->currentMaps[0], bot->posIndex, 0x10);
-	float angle, minAngle = M_PI;
-	for (uint8_t i = 0; i < 8; i++) {
-	    angle = fabs(bot->angleModifier[i] - bot->pos[2]);
-	    if (angle < minAngle) {
-		minAngle = angle;
-		bot->dirIndex = i;
-	    }
-	}
-	if ((bot->obstructed >> 1) & 0x1) {
-	    uint8_t obsIndex[3] = { 0, bot->posIndex[0] + bot->posModifier[bot->dirIndex][0], bot->posIndex[1] + bot->posModifier[bot->dirIndex][1] };
-	    if (obsIndex[1] < 0 || obsIndex[1] >= MAP_UNITS || obsIndex[2] < 0 || obsIndex[2] >= MAP_UNITS) {
-		obsIndex[0] = ((bot->dirIndex % 4) + 2 - 2*(bot->mapsDir)) % 4;
-		obsIndex[1] = (obsIndex[1] < 0) ? MAP_UNITS : (obsIndex[1] >= MAP_UNITS) ? MAP_UNITS - 1 : obsIndex[1];
-		obsIndex[2] = (obsIndex[2] < 0) ? MAP_UNITS : (obsIndex[2] >= MAP_UNITS) ? MAP_UNITS - 1 : obsIndex[2];
-	    }
-	    BitMap_Set(bot->currentMaps[obsIndex[0]], &obsIndex[1], 0x11);
-	}
-    }
+	float vAcc[2] = { 
+		bot->vel[0] + bot->acc[0]*cos(bot->pos[2])*DT - bot->acc[1]*sin(bot->pos[2])*DT,
+		bot->vel[1] + bot->acc[1]*cos(bot->pos[2])*DT + bot->acc[0]*sin(bot->pos[2])*DT
+	};
+	bot->vel[0] = K_ACC*vAcc[0] + (1 - K_ACC)*bot->vEst[0];
+	bot->vel[1] = K_ACC*vAcc[1] + (1 - K_ACC)*bot->vEst[1];
+
+	// fuse angular rate from estimate, gyroscope and magnetometer
+
+	bot->vel[2] = K_GYRO*bot->gyro[2] + (1 - K_GYRO)*bot->vEst[2];
+
+	// estimate new position
+	for (uint8_t i = 0; i < 3; i++) bot->pos[i] += bot->vel[i] * DT;
+	bot->pos[2] = K_MAG*wMag + (1 - K_MAG)*bot->pos[2];
+	bot->pos[2] = normAngle(bot->pos[2]);
 }
 
 void Bot_Controller(struct Bot * bot) { 
     float convDuty[2] = {0};		// convert duty cycle to correct value
     // obtain error angle and distance
-    float goalVec[2] = { bot->goal[0] - bot->pos[0], bot->goal[1] - bot->pos[1] };
+    float goalVec[2] = { bot->goal[0][0] - bot->pos[0], bot->goal[0][1] - bot->pos[1] };
     if (goalVec[0] == 0) goalVec[0] += 0.001;
     float ePos[2] = {
-	getDistance(bot->goal, bot->pos),
-	normAngle(atan2(goalVec[1], goalVec[0]) - bot->pos[2])
+		getDistance(bot->goal, bot->pos),
+		normAngle(atan2(goalVec[1], goalVec[0]) - bot->pos[2])
     };
         
     switch (bot->state & STATE_MASK) {
-	case IDLE: {
-	    /* IDLE state: do not move */
-	    for (int i = 0; i < 2; i++) {
-		bot->duty[i] = 0.0;
-		convDuty[i] = 0.0;
-	    }
-	    LATBCLR = _LATB_LATB4_MASK;
-	    LATACLR = _LATA_LATA3_MASK;
-	    break;
-	}
-	
-	case NAVIGATE: {
-	    // NAVIGATE state: determine duty cycle 
-	    //float distance = Bot_InputPos_Update(bot);
-	    float minDist = MAX_US_DIST;
-
-	    // determine minimum and maximum distance
-	    for (uint8_t i = 0; i < US_SENSORS; i++) if (bot->distances[i] < minDist) minDist = bot->distances[i];
-	    
-	    if (ePos[0] > MIN_DIST) {
-		// pi controller   
-		float rotSign = copysign(1.0, ePos[1]);
-		if (fabs(ePos[1]) < ERROR_MIN) {
-		    float p = ePos[1] * (K_OFFSET / ERROR_MIN);
-		    float i = 0;//K_OFFSET - K_TURN * fabs(bot->ePos[0]);
-		    bot->duty[0] = K_OFFSET - K_DIST / minDist - p + i;// - (K_DIST * ePos[0]) / (ePos[0] + 0.005);
-		    bot->duty[1] = K_OFFSET - K_DIST / minDist + p + i;// - (K_DIST * ePos[0]) / (ePos[0] + 0.005);
-		} else if (fabs(ePos[1]) < ERROR_MAX) {
-		    bot->duty[0] = -rotSign * K_OFFSET;
-		    bot->duty[1] = rotSign * K_OFFSET;
-		} else {
-		    float p = normAngle(M_PI - ePos[1]) * (K_OFFSET / ERROR_MIN);
-		    bot->duty[0] = -K_OFFSET + p;
-		    bot->duty[1] = -K_OFFSET - p;
+		case IDLE: {
+			/* IDLE state: do not move */
+			for (int i = 0; i < 2; i++) {
+			bot->duty[i] = 0.0;
+			convDuty[i] = 0.0;
+			}
+			LATBCLR = _LATB_LATB4_MASK;
+			LATACLR = _LATA_LATA3_MASK;
+			break;
 		}
-	    }
+		
+		case NAVIGATE: {
+			// NAVIGATE state: determine duty cycle 
+			//float distance = Bot_InputPos_Update(bot);
+			float minDist = MAX_US_DIST;
 
-	    /* negative duty cycles should reverse rotation */
-	    if (bot->duty[0] > 0) {
-		LATACLR = _LATA_LATA3_MASK;
-		convDuty[0] = bot->duty[0];
-	    } else {
-		LATASET = _LATA_LATA3_MASK;
-		convDuty[0] = 1.0 + bot->duty[0];
-	    }
-	    if (bot->duty[1] > 0) {
-		LATBCLR = _LATB_LATB4_MASK;
-		convDuty[1] = bot->duty[1];
-	    } else {
-		LATBSET = _LATB_LATB4_MASK;
-		convDuty[1] = 1.0 + bot->duty[1];
-	    }
-	    break;
-	}
+			// determine minimum and maximum distance
+			ePosInt[0] += ePos[0] * DT;
+			ePosInt[1] += ePos[1] * DT;
+	 	    for (uint8_t i = 0; i < US_SENSORS; i++) if (bot->distances[i] < minDist) minDist = bot->distances[i];
+			
+			if (ePos[0] > MIN_DIST) {
+				// pi controller   
+				float rotSign = copysign(1.0, ePos[1]);
+				if (fabs(ePos[1]) < ERROR_MIN) {
+					float p = ePos[1] * (K_OFFSET / ERROR_MIN);
+					float i = ePosInt[1] * (K_INT / ERROR_MIN);
+					bot->duty[0] = K_OFFSET - K_DIST / minDist - p - i;// - (K_DIST * ePos[0]) / (ePos[0] + 0.005);
+					bot->duty[1] = K_OFFSET - K_DIST / minDist + p + i;// - (K_DIST * ePos[0]) / (ePos[0] + 0.005);
+				} else if (fabs(ePos[1]) < ERROR_MAX) {
+					bot->duty[0] = -rotSign * K_OFFSET;
+					bot->duty[1] = rotSign * K_OFFSET;
+				} else {
+					float p = normAngle(M_PI - ePos[1]) * (K_OFFSET / ERROR_MIN);
+					float i = normAngle(M_PI - ePosInt[1]) * (K_INT / ERROR_MIN);
+					bot->duty[0] = -K_OFFSET + p + i;
+					bot->duty[1] = -K_OFFSET - p - i;
+				}
+			}
+
+			/* negative duty cycles should reverse rotation */
+			if (bot->duty[0] > 0) {
+				LATACLR = _LATA_LATA3_MASK;
+				convDuty[0] = bot->duty[0];
+			} else {
+				LATASET = _LATA_LATA3_MASK;
+				convDuty[0] = 1.0 + bot->duty[0];
+			}
+			if (bot->duty[1] > 0) {
+				LATBCLR = _LATB_LATB4_MASK;
+				convDuty[1] = bot->duty[1];
+			} else {
+				LATBSET = _LATB_LATB4_MASK;
+				convDuty[1] = 1.0 + bot->duty[1];
+			}
+			break;
+		}
     };
     
     bot->ePos[0] = ePos[0];
@@ -241,17 +132,105 @@ void Bot_Controller(struct Bot * bot) {
     OC5RS = (int)(convDuty[1] * PWM_T);
 }
 
-void Bot_Navigate(struct Bot * bot, uint8_t index) {
-    // update obstruction - remove obstructions then add
-    float vel = 0.5*(bot->vel[0] + bot->vel[1]);
-    if (getDistance(bot->dPos, bot->pos) > MIN_OBST_DIST) bot->obstructed = 0;
-    if (bot->distances[index] < (MIN_OBST_DIST + K_VEL * vel)) {
-        bot->obstructed |= (0x1 << index);
-	memcpy(bot->dPos, bot->pos, sizeof(float) * 3);
+/* add areas cleaned to currentMaps */
+void Bot_Map_Update(struct Bot * bot, uint8_t sensorIndex) {
+	// check if out of map bounds
+	uint8_t index[2];
+	while (!BitMap_Contains(bot->currentMaps[0], index, bot->pos)) Bot_Map_Required(bot);
+
+	// add new obstruction in sensor reading direction
+	float vel = 0.5*(bot->vel[0] + bot->vel[1]);
+    if (bot->distances[sensorIndex] < (MIN_OBST_DIST + K_VEL * vel)) {
+    	uint8_t dirIndex = ((int)(8.5 - (bot->pos[2] + DIR_OFFSET) / DIR_DIV) + sensorIndex) % 8;
+    	BitMap_SetRelative(bot, dirIndex, 0x11);
     }
-    float change = bot->pos[2] - bot->dPos[2];
     
-    // evaluate if new goal needed
+	// set area cleaned
+	if (bot->posIndex[0] != index[0] || bot->posIndex[1] != index[1]) {
+		memcpy(bot->posIndex, index, sizeof(uint8_t) * 2);
+		BitMap_Set(bot->currentMaps[0], bot->posIndex, 0x10);
+	}
+}
+
+/* determine which maps will form part of supermap 
+ * create maps if necessary */
+void Bot_Map_Required(struct Bot * bot) {
+    // update the current map based on the position of the bot
+	if (!BitMap_Contains(bot->currentMaps[0], bot->index, bot->pos)) {
+		for (uint8_t i = 0; i < 8; i++) {
+		    if (bot->currentMaps[0]->neighbors[i] && BitMap_Contains(bot->currentMaps[0]->neighbors[i], bot->index, bot->pos)) {
+			bot->currentMaps[0] = bot->currentMaps[0]->neighbors[i];
+			break;
+		    }
+		}
+	}
+	
+	// create surrounding currentmaps[0] and add to localmap
+	for (uint8_t i = 0; i < 8; i++) {
+		if (!bot->currentMaps[0]->neighbors[i]) {
+			float pos[2] = { bot->currentMaps[0]->pos[0] + bot->posModifier[i][0] * MAP_SIZE, bot->currentMaps[0]->pos[1] + bot->posModifier[i][1] * MAP_SIZE };
+			BitMap_Initialize(bot, &bot->currentMaps[0]->neighbors[i], pos);
+			Bot_Reinforce_Neighbors(bot->currentMaps[0]->neighbors[i]);
+		}
+		bot->currentMaps[i+1] = bot->currentMaps[0]->neighbors[i];
+	}
+}
+
+void Bot_Reinforce_Neighbors(struct BitMap * map) {    
+	/* check if existing neighbor(s) has additional neighbors */
+	for (char i = 0; i < 8; i++) {
+		if (map->neighbors[i]) {
+			char mIndex = (i + 4) % 8;	// my index relative to neighbor
+			if (i % 2) {
+				if (map->neighbors[i]->neighbors[(mIndex + 7) % 8]) {
+					map->neighbors[(i + 2) % 8] = map->neighbors[i]->neighbors[(mIndex + 7) % 8];
+					map->neighbors[i]->neighbors[(mIndex + 7) % 8]->neighbors[(i + 6) % 8] = map;
+				}
+				if (map->neighbors[i]->neighbors[(mIndex + 1) % 8]) {
+					map->neighbors[(i + 6) % 8] = map->neighbors[i]->neighbors[(mIndex + 1) % 8];
+					map->neighbors[i]->neighbors[(mIndex + 1) % 8]->neighbors[(i + 2) % 8] = map;
+				}
+				if (map->neighbors[i]->neighbors[(mIndex + 6) % 8]) {   
+					map->neighbors[(i + 1) % 8] = map->neighbors[i]->neighbors[(mIndex + 6) % 8];
+					map->neighbors[i]->neighbors[(mIndex + 6) % 8]->neighbors[(i + 5) % 8] = map;
+				}
+				if (map->neighbors[i]->neighbors[(mIndex + 2) % 8]) {
+					map->neighbors[(i + 7) % 8] = map->neighbors[i]->neighbors[(mIndex + 2) % 8];
+					map->neighbors[i]->neighbors[(mIndex + 2) % 8]->neighbors[(i + 3) % 8] = map;
+				}
+				} else {
+				if (map->neighbors[i]->neighbors[(mIndex + 7) % 8]) {
+					map->neighbors[(i + 1) % 8] = map->neighbors[i]->neighbors[(mIndex + 7) % 8];
+					map->neighbors[i]->neighbors[(mIndex + 7) % 8]->neighbors[(i + 5) % 8] = map;
+				}
+				if (map->neighbors[i]->neighbors[(mIndex + 1) % 8]) {
+					map->neighbors[(i + 7) % 8] = map->neighbors[i]->neighbors[(mIndex + 1) % 8];
+					map->neighbors[i]->neighbors[(mIndex + 1) % 8]->neighbors[(i + 3) % 8] = map;
+				}
+			}
+		}
+	}
+}
+
+/* plan paths based on environment information */
+void Bot_Navigate(struct Bot * bot) {
+	// evaluate if new goal needed
+	
+	
+	// determine if obstacle in goal's way
+	float goalVec[2] = { bot->goal[0][0] - bot->pos[0], bot->goal[0][1] - bot->pos[1] };
+	float errAngles[8];
+	char obsFlag = 0;
+	for (uint8_t i = 0; i < 8; i++) {
+		errAngles[i] = getAngles(goalVec[0], goalVec[1], bot->posModifier[i][0], bot->posModifier[i][1]);
+		if (BitMap_At(bot-> errAngles[i] < ERROR_COLLIDE) obsFlag = 1;
+	}
+	if (obsFlag) {
+		// check if possible to navigate to goal via intermediary
+		for (uint8_t i = 0; i < 8; i++)
+			if (errAngles[
+	}
+    
     bot->obsAngles[0] = 0;
     bot->obsAngles[1] = 0;
     float sign = 1.0;
@@ -289,41 +268,41 @@ uint8_t Bot_Odometer_Read(struct Bot * bot, uint8_t times) {
 }
 
 void Bot_Vector_Angles(struct Bot * bot, float angles[US_SENSORS]) {
-    float leftVec[2] = { bot->pos[0] + cos(bot->pos[2] + SENSOR_OFFSET), bot->pos[1] + sin(bot->pos[2] + SENSOR_OFFSET) };
-    float centerVec[2] = { bot->pos[0] + cos(bot->pos[2]), bot->pos[1] + sin(bot->pos[2]) };
-    float rightVec[2] = { bot->pos[0] + cos(bot->pos[2] - SENSOR_OFFSET), bot->pos[1] + sin(bot->pos[2] - SENSOR_OFFSET) };
-    angles[0] = atan2(leftVec[1], leftVec[0]);
-    angles[1] = atan2(centerVec[1], centerVec[0]);
-    angles[2] = atan2(rightVec[1], rightVec[0]);
+	float leftVec[2] = { bot->pos[0] + cos(bot->pos[2] + SENSOR_OFFSET), bot->pos[1] + sin(bot->pos[2] + SENSOR_OFFSET) };
+	float centerVec[2] = { bot->pos[0] + cos(bot->pos[2]), bot->pos[1] + sin(bot->pos[2]) };
+	float rightVec[2] = { bot->pos[0] + cos(bot->pos[2] - SENSOR_OFFSET), bot->pos[1] + sin(bot->pos[2] - SENSOR_OFFSET) };
+	angles[0] = atan2(leftVec[1], leftVec[0]);
+	angles[1] = atan2(centerVec[1], centerVec[0]);
+	angles[2] = atan2(rightVec[1], rightVec[0]);
 }
 
 void Bot_Display_Status(struct Bot * bot) {
-    char line[OLED_LINE_LEN];
-    char status[4];
-    switch (bot->state & STATE_MASK) {
-	case INIT: strcpy(status, "INT"); break;
-	case IDLE: strcpy(status, "IDL"); break;
-	case NAVIGATE: strcpy(status, "NAV"); break;
-	case BATTERY: strcpy(status, "BAT"); break;
-    }
-    OLED_ClearDisplay();
-    snprintf(line, OLED_LINE_LEN, "%s %ds %.f%%", status, bot->time, bot->battery);
-    OLED_Write_Text(0, 0, line);
-    snprintf(line, OLED_LINE_LEN, "p %.2f %.2f %.f", bot->pos[0], bot->pos[1], bot->pos[2] * 180.0 / M_PI);
-    OLED_Write_Text(0, 10, line);
-    snprintf(line, OLED_LINE_LEN, "g %.2f %.2f %.f", bot->goal[0], bot->goal[1], bot->ePos[1] * 180.0 / M_PI);
-    OLED_Write_Text(0, 20, line);
-    snprintf(line, OLED_LINE_LEN, "dc %.2f %.2f o %d %d", bot->duty[0], bot->duty[1], bot->odo[0], bot->odo[1]);
-    //snprintf(line, OLED_LINE_LEN, "dp %.2f %.2f %.f", bot->dPos[0], bot->dPos[1], bot->dPos[2] * 180.0 / M_PI);
-    OLED_Write_Text(0, 30, line);
-    snprintf(line, OLED_LINE_LEN, "us %.2f %.2f %.2f", bot->distances[0], bot->distances[1], bot->distances[2]);
-    OLED_Write_Text(0, 40, line);
-    //snprintf(line, OLED_LINE_LEN, "a %.2f %.2f %.2f", bot->acc[0], bot->acc[1], atan2(bot->mag[1], bot->mag[0]) * 180.0 / M_PI);
-    //snprintf(line, OLED_LINE_LEN, "v %2f %.2f %.f", bot->vel[0], bot->vel[1], bot->vel[2] * 180.0 / M_PI);
-    //snprintf(line, OLED_LINE_LEN, "map %.2f %.2f", bot->currentMaps[0]->pos[0], bot->currentMaps[0]->pos[1]);
-    snprintf(line, OLED_LINE_LEN, "ob %02X %.2f %.f %.f", bot->obstructed, bot->bias[2] * 180. / M_PI, bot->obsAngles[0] * 180. / M_PI, bot->obsAngles[1] * 180. / M_PI);
-    OLED_Write_Text(0, 50, line);
-    OLED_Update();
+	char line[OLED_LINE_LEN];
+	char status[4];
+	switch (bot->state & STATE_MASK) {
+		case INIT: strcpy(status, "INT"); break;
+		case IDLE: strcpy(status, "IDL"); break;
+		case NAVIGATE: strcpy(status, "NAV"); break;
+		case BATTERY: strcpy(status, "BAT"); break;
+	}
+	OLED_ClearDisplay();
+	snprintf(line, OLED_LINE_LEN, "%s %ds %.f%%", status, bot->time, bot->battery);
+	OLED_Write_Text(0, 0, line);
+	snprintf(line, OLED_LINE_LEN, "p %.2f %.2f %.f", bot->pos[0], bot->pos[1], bot->pos[2] * 180.0 / M_PI);
+	OLED_Write_Text(0, 10, line);
+	snprintf(line, OLED_LINE_LEN, "g %.2f %.2f %.f", bot->goal[0], bot->goal[1], bot->ePos[1] * 180.0 / M_PI);
+	OLED_Write_Text(0, 20, line);
+	snprintf(line, OLED_LINE_LEN, "dc %.2f %.2f o %d %d", bot->duty[0], bot->duty[1], bot->odo[0], bot->odo[1]);
+	//snprintf(line, OLED_LINE_LEN, "dp %.2f %.2f %.f", bot->dPos[0], bot->dPos[1], bot->dPos[2] * 180.0 / M_PI);
+	OLED_Write_Text(0, 30, line);
+	snprintf(line, OLED_LINE_LEN, "us %.2f %.2f %.2f", bot->distances[0], bot->distances[1], bot->distances[2]);
+	OLED_Write_Text(0, 40, line);
+	//snprintf(line, OLED_LINE_LEN, "a %.2f %.2f %.2f", bot->acc[0], bot->acc[1], atan2(bot->mag[1], bot->mag[0]) * 180.0 / M_PI);
+	//snprintf(line, OLED_LINE_LEN, "v %2f %.2f %.f", bot->vel[0], bot->vel[1], bot->vel[2] * 180.0 / M_PI);
+	//snprintf(line, OLED_LINE_LEN, "map %.2f %.2f", bot->currentMaps[0]->pos[0], bot->currentMaps[0]->pos[1]);
+	snprintf(line, OLED_LINE_LEN, "ob %02X %.2f %.f %.f", bot->obstructed, bot->bias[2] * 180. / M_PI, bot->obsAngles[0] * 180. / M_PI, bot->obsAngles[1] * 180. / M_PI);
+	OLED_Write_Text(0, 50, line);
+	OLED_Update();
 }
 
 void Bot_UART_Send_Status(struct Bot * bot) {
@@ -406,9 +385,31 @@ char Bitmap_At(struct BitMap * map, uint8_t index[2]) {
     return (byte & (0x3 << 2*(index[1] % 4))) >> 2*(index[1] % 4);
 }
 
+// get the bit location relative to current position
+char BitMap_AtRelative(struct Bot * bot, uint8_t dirIndex) {
+	uint8_t newIndex[3] = { 0, bot->posIndex[0] + bot->posModifier[dirIndex][0], bot->posIndex[1] + bot->posModifier[dirIndex][1] };
+	if (newIndex[1] < 0 || newIndex[1] >= MAP_UNITS || newIndex[2] < 0 || newIndex[2] >= MAP_UNITS) {
+		newIndex[0] = dirIndex + 1;
+		newIndex[1] = (newIndex[1] < 0) ? MAP_UNITS : (newIndex[1] >= MAP_UNITS) ? MAP_UNITS - 1 : newIndex[1];
+		newIndex[2] = (newIndex[2] < 0) ? MAP_UNITS : (newIndex[2] >= MAP_UNITS) ? MAP_UNITS - 1 : newIndex[2];
+	}
+	return BitMap_At(bot->currentMaps[newIndex[0]], &newIndex[1]);
+}
+
 void BitMap_Set(struct BitMap * map, uint8_t index[2], char val) {
     char mask = 0x3 << 2*(index[1] % 4);
     map->grid[index[0]][index[1] / 4] = (map->grid[index[0]][index[1] / 4] & ~mask) | (val << 2*(index[1] % 4));
+}
+
+// set the bit location relative to current position
+void BitMap_SetRelative(struct Bot * bot, uint8_t dirIndex, char val) {
+	uint8_t newIndex[3] = { 0, bot->posIndex[0] + bot->posModifier[dirIndex][0], bot->posIndex[1] + bot->posModifier[dirIndex][1] };
+	if (newIndex[1] < 0 || newIndex[1] >= MAP_UNITS || newIndex[2] < 0 || newIndex[2] >= MAP_UNITS) {
+		newIndex[0] = dirIndex + 1;
+		newIndex[1] = (newIndex[1] < 0) ? MAP_UNITS : (newIndex[1] >= MAP_UNITS) ? MAP_UNITS - 1 : newIndex[1];
+		newIndex[2] = (newIndex[2] < 0) ? MAP_UNITS : (newIndex[2] >= MAP_UNITS) ? MAP_UNITS - 1 : newIndex[2];
+	}
+	BitMap_Set(bot->currentMaps[newIndex[0]], &newIndex[1], val);
 }
 
 char BitMap_IndexToPos(struct BitMap * map, float pos[2], uint8_t index[2]) {
