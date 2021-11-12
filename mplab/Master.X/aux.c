@@ -1,8 +1,8 @@
 #include "aux.h"
 
 /* Helper functions */
-float getAngle(float x1, float y1, float x2, float y2) {
-    float angle = acos((x1*x2 + y1*y2) / (sqrt(x1*x1 + y1*y1) * sqrt(x2*x2 + y2*y2)));
+float getAngle(float pos1[2], float pos2[2]) {
+    float angle = acos((pos1[0]*pos2[0] + pos1[1]*pos2[1]) / (sqrt(pos1[0]*pos1[0] + pos1[1]*pos1[1]) * sqrt(pos2[0]*pos2[0] + pos2[1]*pos2[1])));
     if (isnanf(angle)) return 0.0;
     return angle;	    
 }
@@ -73,6 +73,11 @@ void matrix_mul( int nRows,  int nCols, int nAdd, float result[][nCols], float m
 		result[i][j] += mat1[i][k] * mat2[k][j];
 	}
     }
+}
+
+float random(float a, float b) {
+    float r = ((float)rand()) / (float)RAND_MAX;
+    return a + r*(b-a);
 }
 
 /* inverse of 3x3 matrix /

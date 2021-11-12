@@ -73,8 +73,6 @@ void Master_Init() {
 	bot->state = INIT;//STATE_UART_MASK;		// .uartState=0 in prod
 	float sensorOffsets[3] = { SENSOR_OFFSET, 0.0, -SENSOR_OFFSET };
 	memcpy(bot->sensorOffsets, sensorOffsets, sizeof(bot->sensorOffsets));
-	float obsModifier[8] = { 0, -0.8727, 1.2217, -1.2217, 0.8727, 2.7053, 1.2217, 2.7053 };
-	memcpy(bot->obsModifier, obsModifier, sizeof(bot->obsModifier));
 	bot->angleModifier = (float [8]){3*M_PI/4, M_PI/2, M_PI/4, 0, -M_PI/4, M_PI/2, -3*M_PI/4, M_PI};
 	const uint8_t posModifier[8][2] = {
 		{-1, 1},
@@ -92,6 +90,8 @@ void Master_Init() {
 	BitMap_Initialize(bot, &bot->currentMaps[0], startMap);
 	Bot_Map_Required(bot);
 	//bot->goal[0] = -0.6;
+	
+	Node_Initialize(&bot->qCurr, NULL, bot->pos);
 }
 
 void SYS_Unlock() {
@@ -149,7 +149,7 @@ void __ISR(_TIMER_1_VECTOR, IPL2SOFT) TMR1_IntHandler() {
 /* Ultrasonic echo timer */
 void __ISR(_TIMER_5_VECTOR, IPL2SOFT) TMR5_IntHandler() {
 	IFS0CLR = _IFS0_T5IF_MASK;
-	bot->distances[bot->usState] = TMR5 * SOUND_SPEED;
+	bot->dist[bot->usState] = TMR5 * SOUND_SPEED;
 	TMR5 = 0;
 	//if (bot->distances[bot->usState] > MAX_US_DIST || bot->distances[bot->usState] < MIN_US_DIST) bot->distances[bot->usState] = MAX_US_DIST;
 

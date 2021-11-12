@@ -13,7 +13,6 @@
 #define WHEEL_HOLES 20.0
 #define ODO_SCALE M_PI / WHEEL_HOLES
 #define CHASSIS_LENGTH 0.15
-#define ALPHA 0.1
 #define BETA M_PI / 2.0
 #define GAMMA 0.1
 
@@ -52,6 +51,14 @@
 #define MAX_US_DIST 0.9
 #define MIN_PWM 0.1
 
+#define I_MAX 20
+#define ALPHA 0.7
+#define D_MIN 0.1
+#define G_MIN 0.05
+#define CHILDREN_MAX 20
+#define SENSOR_A 0.959931               // 55 deg
+#define SENSOR_M 0.436332               // 25 deg
+
 #define Q_VAL 0.5
 #define R_VAL 0.5
 #define INPUTQ_SIZE 50
@@ -77,13 +84,13 @@
 
 #define BUF_LEN 1024
 #define OLED_LINE_LEN 24
-#define GOAL_LEN 5
 
 // state
 #define INIT 0
 #define IDLE 1
 #define NAVIGATE 2
 #define BATTERY 3
+
 #define STATE_MASK 0x3
 #define STATE_MASK0 0x1
 #define STATE_MASK1 0x2
@@ -91,9 +98,12 @@
 #define STATE_TX_MASK 0x8
 
 /* bot data structures */
-struct ProbMap {
-    float pos[2];
-    char grid[MAP_UNITS][MAP_UNITS];
+struct Node {
+	float pos[3];
+	float dist[3];
+	uint8_t numChildren;
+	struct Node * parent;
+	struct Node ** children;
 };
 
 struct BitMap {
@@ -108,7 +118,6 @@ struct Bot {
     float pos[3];               // x, y, rot
     uint8_t posIndex[2];        // position index on map
     float dPos[3];              // pos at last desired pos, angle at last map
-    float goal[GOAL_LEN][2];       
     uint8_t odo[2];
     float ePos[2];              // pid error r, theta
     float ePosInt[2];			// integral of error
@@ -124,7 +133,7 @@ struct Bot {
     
     /* mapping */
     char usState;
-    float distances[3];
+    float dist[3];
     uint8_t obstructed;                     	// bitwise obstacle flags
     struct BitMap * currentMaps[9];             // current bitmap of bot
     uint8_t mapsDir;
@@ -133,7 +142,9 @@ struct Bot {
     float battery;
     
     /* navigation */
-    float randomAngle;
+    struct Node * qRoot;
+    struct Node * qCurr;
+    struct Node * qCand;
     
     /* auxiliary */
     char count;
@@ -178,6 +189,11 @@ char BitMap_AtRelative(struct Bot * bot, uint8_t dirIndex);
 void BitMap_Set(struct BitMap * map, uint8_t index[2], char val);
 void BitMap_SetRelative(struct Bot * bot, uint8_t dirIndex, char val);
 char BitMap_IndexToPos(struct BitMap * map, float pos[2], uint8_t index[2]);
+
+/* node functions */
+void Node_Initialize(struct Node ** ptr, struct Node * parent, float pos[3]);
+void Node_Add(struct Bot * bot, struct Node * node);
+char Node_Valid(struct Bot * bot, struct Node * node, float pos[2]);
 
 /* filter functions */
 void Bot_FIR_Init(struct Bot * bot);
