@@ -6,7 +6,8 @@
  */
 
 /* Bluetooth setup code:
- * sudo killall rfcomm & sudo rfcomm connect /dev/rfcomm0 98:DA:D0:00:5E:C4 1 &
+ * sudo killall rfcomm
+ * sudo rfcomm connect /dev/rfcomm0 98:DA:D0:00:5E:C4 1 &
  * sudo minicom -D /dev/rfcomm0
  */
 // PIC32MX220F032B Configuration Bit Settings
@@ -50,7 +51,8 @@
 int main() {
 	delay(100000l);
 
-	Master_Init();
+	float startPos[2] = {0};
+	Bot_Init(&bot, startPos);
 	Init(bot->buf);
 	bot->portCN = 1;
 	Bot_UART_Write(bot, "Bot Initialized...\r\n");
@@ -66,32 +68,6 @@ int main() {
 
 	for (;;);
 	return EXIT_SUCCESS;
-}
-
-void Master_Init() {
-	bot = malloc(sizeof(struct Bot));
-	bot->state = INIT;//STATE_UART_MASK;		// .uartState=0 in prod
-	float sensorOffsets[3] = { SENSOR_OFFSET, 0.0, -SENSOR_OFFSET };
-	memcpy(bot->sensorOffsets, sensorOffsets, sizeof(bot->sensorOffsets));
-	bot->angleModifier = (float [8]){3*M_PI/4, M_PI/2, M_PI/4, 0, -M_PI/4, M_PI/2, -3*M_PI/4, M_PI};
-	const uint8_t posModifier[8][2] = {
-		{-1, 1},
-		{0, 1},
-		{1, 1},
-		{1, 0},
-		{1, -1},
-		{0, -1},
-		{-1, -1},
-		{-1, 0}
-	};
-	memcpy(&bot->posModifier, &posModifier, sizeof(bot->posModifier));
-	Bot_FIR_Init(bot);
-	float startMap[2] = { -MAP_SIZE / 2, MAP_SIZE / 2 };
-	BitMap_Initialize(bot, &bot->currentMaps[0], startMap);
-	Bot_Map_Required(bot);
-	//bot->goal[0] = -0.6;
-	
-	Node_Initialize(&bot->qCurr, NULL, bot->pos);
 }
 
 void SYS_Unlock() {
@@ -110,7 +86,16 @@ void SYS_Lock() {
 void __ISR(_TIMER_1_VECTOR, IPL2SOFT) TMR1_IntHandler() {
 	IFS0CLR = _IFS0_T1IF_MASK;
 	bot->count++;
+	
+	Bot_Pos_IMU(bot);		// imu pos update @ 40 Hz
+	
+	if (bot->count % 10 == 0) {
+	    Bot_Pos_Odo(bot);		// odo pos update @ 4 Hz
+			bot->usState = 0;
+			Ultrasonic_Trigger();
+	}
 
+	/*
 	// bot us update at 4 Hz
 	if (bot->count % (FREQ / 4) == 0) {
 		bot->usState = 0;
@@ -123,7 +108,6 @@ void __ISR(_TIMER_1_VECTOR, IPL2SOFT) TMR1_IntHandler() {
 
 	// bot odo update and status display at 5 Hz
 	if (bot->count % (FREQ / 5) == 0) {
-		if ((bot->state & STATE_MASK) == NAVIGATE) Bot_Odometer_Read(bot, 5);
 		Bot_Display_Status(bot);
 		//Bot_Display_BitMap(bot);
 	}
@@ -131,6 +115,7 @@ void __ISR(_TIMER_1_VECTOR, IPL2SOFT) TMR1_IntHandler() {
 	// bot battery read at 1 Hz
 	if (bot->count % FREQ == 0) {
 	bot->time++;
+	bot->dblClickCount = (bot->time % 2) ? 0 : bot->dblClickCount;
 	if (bot->time == 3) {
 		for (uint8_t i = 0; i < 6; i++) {
 			bot->bias[i] /= bot->numBias;
@@ -144,6 +129,7 @@ void __ISR(_TIMER_1_VECTOR, IPL2SOFT) TMR1_IntHandler() {
 	bot->count = 0;
 	bot->portCN = 1;
 	}
+	 */
 }
 
 /* Ultrasonic echo timer */
@@ -151,14 +137,13 @@ void __ISR(_TIMER_5_VECTOR, IPL2SOFT) TMR5_IntHandler() {
 	IFS0CLR = _IFS0_T5IF_MASK;
 	bot->dist[bot->usState] = TMR5 * SOUND_SPEED;
 	TMR5 = 0;
-	//if (bot->distances[bot->usState] > MAX_US_DIST || bot->distances[bot->usState] < MIN_US_DIST) bot->distances[bot->usState] = MAX_US_DIST;
 
-	/* check if all readings taken, update map */
-	if ((bot->state & STATE_MASK) == NAVIGATE) {
-		Bot_Map_Update(bot, bot->usState);
-		Bot_Navigate(bot);
+	// check if all readings taken, update map 
+	if (bot->usState++ == US_SENSORS) {
+		Bot_Map_Update(bot);
+		//Bot_Navigate(bot);
+		bot->usState = 0;
 	}
-	bot->usState = (bot->usState + 1) % US_SENSORS;
 }
 
 /* Battery sampler */
@@ -171,19 +156,24 @@ void __ISR(_ADC_VECTOR, IPL2SOFT) ADC_IntHandler() {
 
 /* User */
 void __ISR(_CHANGE_NOTICE_VECTOR, IPL2SOFT) CNB_IntHandler() {
+	IFS1CLR = _IFS1_CNBIF_MASK;
 	if (bot->portCN && !(PORTB & 0x20)) {
 		/* button press occured */
-		/*free(bot);
-		SYS_Unlock();
-		RSWRSTSET = 1;
-		volatile int * p = &RSWRST;
-		*p;
-		while (1); */
+	    if (bot->dblClickCount == 0) {
+		bot->dblClickCount++;
 		char newState = ((bot->state & STATE_MASK) == IDLE) ? NAVIGATE : IDLE;
 		bot->state = (bot->state & ~STATE_MASK) | newState;
 		bot->portCN = 0;
+		return;
+	    }
+	    
+	    free(bot);
+	    SYS_Unlock();
+	    RSWRSTSET = 1;
+	    volatile int * p = &RSWRST;
+	    *p;
+	    while (1);
 	}
-	IFS1CLR = _IFS1_CNBIF_MASK;
 }
 
 void __ISR(_DMA1_VECTOR, IPL2SOFT) DMA_IntHandler() {

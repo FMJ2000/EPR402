@@ -24,5 +24,6 @@ char I2C_Master_Read();
 int I2C_Write(char periphAdd, char regAdd, char data);
 int I2C_Read(char periphAdd, char regAdd, char * data, int len);
 void Ultrasonic_Trigger();
+uint8_t Odometer_Read(float odo[2], uint8_t times);
 
 #endif

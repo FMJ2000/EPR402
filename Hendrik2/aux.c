@@ -1,33 +1,13 @@
+/*
+ * aux.c
+ *
+ *  Created on: 08 Nov 2021
+ *      Author: martin
+ */
+
 #include "aux.h"
 
-/* Helper functions */
-float getAngle(float pos1[2], float pos2[2]) {
-    float angle = acos((pos1[0]*pos2[0] + pos1[1]*pos2[1]) / (sqrt(pos1[0]*pos1[0] + pos1[1]*pos1[1]) * sqrt(pos2[0]*pos2[0] + pos2[1]*pos2[1])));
-    if (isnanf(angle)) return 0.0;
-    return angle;	    
-}
-
-float normAngle(float x) {
-    x = fmod(x + M_PI, 2*M_PI);
-    if (x <= 0) x += 2*M_PI;
-    return x - M_PI;
-}
-
-float getDistance(float pos1[2], float pos2[2]) {
-    return sqrtf(powf(pos1[0] - pos2[0], 2) + powf(pos1[1] - pos2[1], 2));
-}
-
-void distanceToPos(float result[][2], float botPos[3], float sensorOffsets[3], float * distances) {
-    for (char i = 0; i < US_SENSORS; i++) {
-	result[i][0] = botPos[0] + distances[i] * cos(sensorOffsets[i] - botPos[2]);
-	result[i][1] = botPos[1] + distances[i] * sin(sensorOffsets[i] - botPos[2]);
-    }
-}
-
-void delay(long us) {
-    long count = us * SYSCLK / 16000000;
-    while (count--);
-}
+extern UART_HandleTypeDef huart2;
 
 /* matrix manipulations */
 void Mat_T(uint8_t rows, uint8_t cols, float result[cols][rows], float mat[rows][cols]) {
@@ -120,7 +100,7 @@ void Mat_Print(uint8_t rows, uint8_t cols, float mat[rows][cols], char * title) 
 		snprintf(msg, MSG_LEN, "%s},\r\n", msg);
 	}
 	snprintf(msg, MSG_LEN, "%s}\r\n", msg);
-	Bot_UART_Write(bot, msg);
+	HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 0x100);
 }
 
 void Vec_Print(uint8_t cols, float vec[cols], char * title) {
@@ -129,7 +109,7 @@ void Vec_Print(uint8_t cols, float vec[cols], char * title) {
 	for (uint8_t i = 0; i < cols; i++)
 		snprintf(msg, MSG_LEN, "%s%.3f, ", msg, vec[i]);
 	snprintf(msg, MSG_LEN, "%s}\r\n", msg);
-	Bot_UART_Write(bot, msg);
+	HAL_UART_Transmit(&huart2, (uint8_t *)msg, strlen(msg), 0x100);
 }
 
 /* Quaternion modifications */

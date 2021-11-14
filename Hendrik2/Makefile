@@ -1,17 +1,10 @@
-CC = g++
-CFLAGS = -Wall -g
-SFMLFLAGS = -lsfml-graphics -lsfml-window -lsfml-system -lm
-OBJECTS = main.o game.o bot.o obstacle.o node.o
-HEADERS = game.hpp bot.hpp obstacle.hpp node.hpp
+CC=gcc
+CFLAGS=-I.
+DEPS=bot.h map.h aux.h
+OBJ=bot.o map.o aux.o
 
-run: main
-	./$^
+%.o: %.c $(DEPS)
+	$(CC) -c -o $@ $< $(CFLAGS)
 
-main: $(OBJECTS)
-	$(CC) $(CFLAGS) -o main $(OBJECTS) $(SFMLFLAGS)
-
-main.o: main.cpp $(HEADERS)
-	$(CC) $(CFLAGS) -c main.cpp
-
-*.o: $(HEADERS)
-
+bot: $(OBJ)
+	$(CC) -o $@ $^ $(CFLAGS)

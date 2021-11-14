@@ -57,17 +57,17 @@ OBJECTDIR=build/${CND_CONF}/${IMAGE_TYPE}
 DISTDIR=dist/${CND_CONF}/${IMAGE_TYPE}
 
 # Source Files Quoted if spaced
-SOURCEFILES_QUOTED_IF_SPACED=aux.c bot.c imu.c master.c oled.c periph.c
+SOURCEFILES_QUOTED_IF_SPACED=aux.c bot.c imu.c master.c oled.c periph.c map.c
 
 # Object Files Quoted if spaced
-OBJECTFILES_QUOTED_IF_SPACED=${OBJECTDIR}/aux.o ${OBJECTDIR}/bot.o ${OBJECTDIR}/imu.o ${OBJECTDIR}/master.o ${OBJECTDIR}/oled.o ${OBJECTDIR}/periph.o
-POSSIBLE_DEPFILES=${OBJECTDIR}/aux.o.d ${OBJECTDIR}/bot.o.d ${OBJECTDIR}/imu.o.d ${OBJECTDIR}/master.o.d ${OBJECTDIR}/oled.o.d ${OBJECTDIR}/periph.o.d
+OBJECTFILES_QUOTED_IF_SPACED=${OBJECTDIR}/aux.o ${OBJECTDIR}/bot.o ${OBJECTDIR}/imu.o ${OBJECTDIR}/master.o ${OBJECTDIR}/oled.o ${OBJECTDIR}/periph.o ${OBJECTDIR}/map.o
+POSSIBLE_DEPFILES=${OBJECTDIR}/aux.o.d ${OBJECTDIR}/bot.o.d ${OBJECTDIR}/imu.o.d ${OBJECTDIR}/master.o.d ${OBJECTDIR}/oled.o.d ${OBJECTDIR}/periph.o.d ${OBJECTDIR}/map.o.d
 
 # Object Files
-OBJECTFILES=${OBJECTDIR}/aux.o ${OBJECTDIR}/bot.o ${OBJECTDIR}/imu.o ${OBJECTDIR}/master.o ${OBJECTDIR}/oled.o ${OBJECTDIR}/periph.o
+OBJECTFILES=${OBJECTDIR}/aux.o ${OBJECTDIR}/bot.o ${OBJECTDIR}/imu.o ${OBJECTDIR}/master.o ${OBJECTDIR}/oled.o ${OBJECTDIR}/periph.o ${OBJECTDIR}/map.o
 
 # Source Files
-SOURCEFILES=aux.c bot.c imu.c master.c oled.c periph.c
+SOURCEFILES=aux.c bot.c imu.c master.c oled.c periph.c map.c
 
 
 
@@ -143,6 +143,12 @@ ${OBJECTDIR}/periph.o: periph.c  .generated_files/flags/default/6aeeb676e8150b0d
 	@${RM} ${OBJECTDIR}/periph.o 
 	${MP_CC}  $(MP_EXTRA_CC_PRE) -g -D__DEBUG -D__MPLAB_DEBUGGER_PK3=1  -fframe-base-loclist  -x c -c -mprocessor=$(MP_PROCESSOR_OPTION)  -fno-common -MP -MMD -MF "${OBJECTDIR}/periph.o.d" -o ${OBJECTDIR}/periph.o periph.c    -DXPRJ_default=$(CND_CONF)  -legacy-libc  $(COMPARISON_BUILD)  -mdfp="${DFP_DIR}"  
 	
+${OBJECTDIR}/map.o: map.c  .generated_files/flags/default/240950d5877fbd92347c7b1d9bfa0a010f1be19a .generated_files/flags/default/dd3623c89e4677f90469d78ff507bf2f23022ec
+	@${MKDIR} "${OBJECTDIR}" 
+	@${RM} ${OBJECTDIR}/map.o.d 
+	@${RM} ${OBJECTDIR}/map.o 
+	${MP_CC}  $(MP_EXTRA_CC_PRE) -g -D__DEBUG -D__MPLAB_DEBUGGER_PK3=1  -fframe-base-loclist  -x c -c -mprocessor=$(MP_PROCESSOR_OPTION)  -fno-common -MP -MMD -MF "${OBJECTDIR}/map.o.d" -o ${OBJECTDIR}/map.o map.c    -DXPRJ_default=$(CND_CONF)  -legacy-libc  $(COMPARISON_BUILD)  -mdfp="${DFP_DIR}"  
+	
 else
 ${OBJECTDIR}/aux.o: aux.c  .generated_files/flags/default/92b109c061f926d89a4c608bd6c665b386d4db7a .generated_files/flags/default/dd3623c89e4677f90469d78ff507bf2f23022ec
 	@${MKDIR} "${OBJECTDIR}" 
@@ -179,6 +185,12 @@ ${OBJECTDIR}/periph.o: periph.c  .generated_files/flags/default/e861b133c36c6582
 	@${RM} ${OBJECTDIR}/periph.o.d 
 	@${RM} ${OBJECTDIR}/periph.o 
 	${MP_CC}  $(MP_EXTRA_CC_PRE)  -g -x c -c -mprocessor=$(MP_PROCESSOR_OPTION)  -fno-common -MP -MMD -MF "${OBJECTDIR}/periph.o.d" -o ${OBJECTDIR}/periph.o periph.c    -DXPRJ_default=$(CND_CONF)  -legacy-libc  $(COMPARISON_BUILD)  -mdfp="${DFP_DIR}"  
+	
+${OBJECTDIR}/map.o: map.c  .generated_files/flags/default/5df199a1fbf941a4371596818a792b86f7858e18 .generated_files/flags/default/dd3623c89e4677f90469d78ff507bf2f23022ec
+	@${MKDIR} "${OBJECTDIR}" 
+	@${RM} ${OBJECTDIR}/map.o.d 
+	@${RM} ${OBJECTDIR}/map.o 
+	${MP_CC}  $(MP_EXTRA_CC_PRE)  -g -x c -c -mprocessor=$(MP_PROCESSOR_OPTION)  -fno-common -MP -MMD -MF "${OBJECTDIR}/map.o.d" -o ${OBJECTDIR}/map.o map.c    -DXPRJ_default=$(CND_CONF)  -legacy-libc  $(COMPARISON_BUILD)  -mdfp="${DFP_DIR}"  
 	
 endif
 

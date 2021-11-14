@@ -1,17 +1,14 @@
-#ifndef _AUX_H
-#define _AUX_H
+#ifndef AUX_H_
+#define AUX_H_
 
-#include "master.h"
-#include "bot.h"
+#include <stdlib.h>
+#include <stdint-gcc.h>
+#include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
 
 #define MSG_LEN 500
-
-/* helper functions */
-float getAngle(float pos1[2], float pos2[2]);
-float normAngle(float x);
-float getDistance(float pos1[2], float pos2[2]);
-void distanceToPos(float result[][2], float botPos[3], float sensorOffsets[3], float * distances);
-void delay(long us);
 
 // Matrix equations
 void Mat_T(uint8_t rows, uint8_t cols, float result[cols][rows], float mat[rows][cols]);
@@ -34,5 +31,4 @@ void q_to_R(float R[3][3], float q[4]);
 void norm(uint8_t len, float x[len]);
 void cholesky(uint8_t rows, float L[rows][rows], float A[rows][rows]);
 
-
-#endif
+#endif /* AUX_H_ */

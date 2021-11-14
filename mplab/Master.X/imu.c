@@ -38,24 +38,15 @@ void IMU_Init(float asa[3], float * yaw, uint8_t whoami[2]) {
     //*yaw = (float)val * asa[2] * SCALE;
 }
 
-void IMU_Read(float gyro[3], float acc[3], float mag[3], float asa[3]) {
+void IMU_Read(float imu[3]) {
     // Get IMU sensor data
-    uint8_t data[18];		// 9 sensor readings
-    uint8_t status;	// 2 magnetometer status bits
-    int16_t values[9];
-    I2C_Read(MPU9250_AD, GYRO_XOUT_H_AD, data, 6);
-    I2C_Read(MPU9250_AD, ACCEL_XOUT_H_AD, &data[6], 6);
-    I2C_Read(MAG_AD, STATUS_1_AD, &status, 1);
-    if ((status & DATA_READY) == DATA_READY) {
-	I2C_Read(MAG_AD, HXL_AD, &data[12], 6);
-	I2C_Read(MAG_AD, STATUS_2_AD, &status, 1);
-    }
+    uint8_t data[6];		// 9 sensor readings
+    int16_t values[3];
+    I2C_Read(MPU9250_AD, ACCEL_XOUT_H_AD, data, 4);
+    I2C_Read(MPU9250_AD, GYRO_XOUT_H_AD, &data[4], 2);
     
-    for (uint8_t i = 0; i < 6; i++) values[i] = (data[2*i] << 8) | data[2*i+1];
-    for (uint8_t i = 0; i < 3; i++) values[6+i] = (data[7+2*i] << 8) | data[6+2*i];
-    for (uint8_t i = 0; i < 3; i++) {
-	gyro[i] = (float)values[i] * M_PI / (GYRO_SENS * 180.0);
-	acc[i] = (float)values[3+i] / ACCEL_SENS;
-	mag[i] = (float)values[6+i] * asa[i] * SCALE;
-    }
+    for (uint8_t i = 0; i < 3; i++) values[i] = (data[2*i] << 8) | data[2*i+1];
+    imu[0] = (float)values[0] / ACCEL_SENS;
+    imu[1] = (float)values[1] / ACCEL_SENS;
+    imu[2] = (float)values[2] * M_PI / (GYRO_SENS * 180.0);
 }

@@ -57,6 +57,6 @@
 #define IMU_RES 32768.0
 
 void IMU_Init(float asa[3], float * yaw, uint8_t whoami[2]);
-void IMU_Read(float gyro[3], float acc[3], float mag[3], float asa[3]);
+void IMU_Read(float imu[3]);
 
 #endif
