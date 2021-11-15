@@ -19,7 +19,6 @@
 /* definitions */
 #define SYSCLK 64000000l
 #define PBCLK 32000000l
-#define TMR1_PR 12500
 #define FREQ 40
 #define DT 0.025  
 #define US_TRIG_T 640           // ultrasonic trigger

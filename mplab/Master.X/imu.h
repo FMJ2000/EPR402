@@ -56,7 +56,7 @@
 #define TEMP_OFFSET 25
 #define IMU_RES 32768.0
 
-void IMU_Init(float asa[3], float * yaw, uint8_t whoami[2]);
+void IMU_Init(uint8_t whoami[2]);
 void IMU_Read(float imu[3]);
 
 #endif

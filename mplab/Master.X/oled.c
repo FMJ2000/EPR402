@@ -877,19 +877,22 @@ void OLED_Write( int16_t x, int16_t y, char value )
  * @param x: character starting position on x-axis. Valid values: 0..127
  * @param y: character starting position on x-axis. Valid values: 0..63
  */
-void OLED_Write_Text( int16_t x, int16_t y, char *text)
+void OLED_Write_Text( int16_t x, int16_t y, char * format, ...)
 {
+	char text[OLED_LINE_LEN];
+	va_list args;
+	va_start(args, format);
+	uint8_t length = vsnprintf(text, OLED_LINE_LEN, format, args);
   uint8_t cnt;
-  uint8_t length;
-
-  length = strlen( (const char*)text);
+  
   if (x == RIGHT)
     x = 128-(length*cfont.x_size);
   if (x == CENTER)
     x = (128-(length*cfont.x_size))/2;
 
   for ( cnt=0; cnt<length; cnt++ )
-    OLED_Write(x + (cnt*(cfont.x_size)), y, *text++ );
+    OLED_Write(x + (cnt*(cfont.x_size)), y, text[cnt] );
+	va_end(args);
 }
 
 /**

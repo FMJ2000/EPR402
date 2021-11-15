@@ -9,7 +9,7 @@ void Init(unsigned char * buf) {
     ANSELA = 0x1;
     TRISA = 0x1;
     LATA = 0x0;
-    LATASET = _LATA_LATA1_MASK;
+	LATASET = _LATA_LATA1_MASK;
 
     ANSELB = 0x0;
     TRISB = 0xA3A0;
@@ -53,7 +53,7 @@ void Init(unsigned char * buf) {
     
     /* Sampling timer */
     TMR1 = 0x0;
-    PR1 = TMR1_PR;		// f = 10 Hz
+    PR1 = TMR1_PR;		// f = 40 Hz
     T1CON = 0x8020;		// 1:64 prescaler = 500 kHz (reset to 0x8020)
     
     /* Ultrasonic */

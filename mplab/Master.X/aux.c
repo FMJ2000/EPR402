@@ -2,31 +2,32 @@
 
 /* Helper functions */
 float getAngle(float pos1[2], float pos2[2]) {
-    float angle = acos((pos1[0]*pos2[0] + pos1[1]*pos2[1]) / (sqrt(pos1[0]*pos1[0] + pos1[1]*pos1[1]) * sqrt(pos2[0]*pos2[0] + pos2[1]*pos2[1])));
+    /*float angle = acos((pos1[0]*pos2[0] + pos1[1]*pos2[1]) / (sqrt(pos1[0]*pos1[0] + pos1[1]*pos1[1]) * sqrt(pos2[0]*pos2[0] + pos2[1]*pos2[1])));
     if (isnanf(angle)) return 0.0;
-    return angle;	    
+    return angle;	   */
+	return atan2(pos2[1] - pos1[1], pos2[0] - pos1[0]);
 }
 
 float normAngle(float x) {
-    x = fmod(x + M_PI, 2*M_PI);
-    if (x <= 0) x += 2*M_PI;
-    return x - M_PI;
+	x = fmod(x + M_PI, 2*M_PI);
+	if (x <= 0) x += 2*M_PI;
+	return x - M_PI;
 }
 
 float getDistance(float pos1[2], float pos2[2]) {
-    return sqrtf(powf(pos1[0] - pos2[0], 2) + powf(pos1[1] - pos2[1], 2));
+	return sqrtf(powf(pos1[0] - pos2[0], 2) + powf(pos1[1] - pos2[1], 2));
 }
 
 void distanceToPos(float result[][2], float botPos[3], float sensorOffsets[3], float * distances) {
-    for (char i = 0; i < US_SENSORS; i++) {
-	result[i][0] = botPos[0] + distances[i] * cos(sensorOffsets[i] - botPos[2]);
-	result[i][1] = botPos[1] + distances[i] * sin(sensorOffsets[i] - botPos[2]);
-    }
+	for (char i = 0; i < US_SENSORS; i++) {
+		result[i][0] = botPos[0] + distances[i] * cos(sensorOffsets[i] - botPos[2]);
+		result[i][1] = botPos[1] + distances[i] * sin(sensorOffsets[i] - botPos[2]);
+	}
 }
 
 void delay(long us) {
-    long count = us * SYSCLK / 16000000;
-    while (count--);
+	long count = us * SYSCLK / 16000000;
+	while (count--);
 }
 
 /* matrix manipulations */
@@ -106,100 +107,6 @@ float Mat_Det(uint8_t rows, float mat[rows][rows]) {
 		det = (i % 2) ? det - mat[0][i]*submat_det : det + mat[0][i]*submat_det;
 	}
 	return det;
-}
-
-
-void Mat_Print(uint8_t rows, uint8_t cols, float mat[rows][cols], char * title) {
-	char msg[MSG_LEN];
-	snprintf(msg, MSG_LEN, "%s: {", title);
-	for (uint8_t i = 0; i < rows; i++) {
-		snprintf(msg, MSG_LEN, "%s{", msg);
-		for (uint8_t j = 0; j < cols; j++) {
-			snprintf(msg, MSG_LEN, "%s%.3f, ", msg, mat[i][j]);
-		}
-		snprintf(msg, MSG_LEN, "%s},\r\n", msg);
-	}
-	snprintf(msg, MSG_LEN, "%s}\r\n", msg);
-	Bot_UART_Write(bot, msg);
-}
-
-void Vec_Print(uint8_t cols, float vec[cols], char * title) {
-	char msg[MSG_LEN];
-	snprintf(msg, MSG_LEN, "%s: {", title);
-	for (uint8_t i = 0; i < cols; i++)
-		snprintf(msg, MSG_LEN, "%s%.3f, ", msg, vec[i]);
-	snprintf(msg, MSG_LEN, "%s}\r\n", msg);
-	Bot_UART_Write(bot, msg);
-}
-
-/* Quaternion modifications */
-void q_mul(float result[4], float q1[4], float q2[4]) {
-	result[0] = q1[0]*q2[0] - q1[1]*q2[1] - q1[2]*q2[2] - q1[3]*q2[3];
-	result[1] = q1[0]*q2[1] + q1[1]*q2[0] + q1[2]*q2[3] - q1[3]*q2[2];
-	result[2] = q1[0]*q2[2] - q1[1]*q2[3] + q1[2]*q2[0] + q1[3]*q2[1];
-	result[3] = q1[0]*q2[3] + q1[1]*q2[2] - q1[2]*q2[1] + q1[3]*q2[0];
-}
-
-void q_inv(float result[4], float q[4]) {
-	float div = q[0]*q[0] + q[1]*q[1] + q[2]*q[2] + q[3]*q[3];
-	result[0] = q[0] / div;
-	result[1] = -q[1] / div;
-	result[2] = -q[2] / div;
-	result[3] = -q[3] / div;
-}
-
-void q_rot(float result[4], float q1[4], float q2[4]) {
-	float qInv[4], qInt[4];
-	q_inv(qInv, q1);
-	q_mul(qInt, q2, qInv);
-	q_mul(result, q1, qInt);
-}
-
-void q_to_r(float r[3], float q[4]) {
-	float a = 2.0 * acos(q[0]);
-	if (a == 0) {
-		r[0] = 0.0;
-		r[1] = 0.0;
-		r[2] = 0.0;
-	} else {
-		float scale = a / sin(a / 2.0);
-		r[0] = scale * q[1];
-		r[1] = scale * q[2];
-		r[2] = scale * q[3];
-	}
-}
-
-void r_to_q(float q[4], float r[3]) {
-	float a = sqrt(r[0]*r[0] + r[1]*r[1] + r[2]*r[2]);
-	if (a == 0) {
-		q[0] = 1.0;
-		q[1] = 0.0;
-		q[2] = 0.0;
-		q[3] = 0.0;
-	} else {
-		q[0] = cos(a / 2.0);
-		q[1] = (r[0] / a) * sin(a / 2.0);
-		q[1] = (r[1] / a) * sin(a / 2.0);
-		q[1] = (r[2] / a) * sin(a / 2.0);
-	}
-}
-
-void q_to_e(float e[3], float q[4]) {
-	e[0] = atan2(2*(q[0]*q[1] + q[2]*q[3]), 1 - 2*(q[1]*q[1] + q[2]*q[2]));
-	e[1] = asin(2*(q[0]*q[2] - q[3]*q[1]));
-	e[2] = atan2(2*(q[0]*q[3] + q[1]*q[2]), 1 - 2*(q[2]*q[2] + q[3]*q[3]));
-}
-
-void q_to_R(float R[3][3], float q[4]) {
-	R[0][0] = q[0]*q[0] + q[1]*q[1] - q[2]*q[2] - q[3]*q[3];
-	R[0][1] = 2.0 * (q[1]*q[2] - q[0]*q[3]);
-	R[0][2] = 2.0 * (q[1]*q[3] + q[0]*q[2]);
-	R[1][0] = 2.0 * (q[1]*q[2] + q[0]*q[3]);
-	R[1][1] = q[0]*q[0] - q[1]*q[1] + q[2]*q[2] - q[3]*q[3];
-	R[1][2] = 2.0 * (q[2]*q[3] - q[0]*q[1]);
-	R[2][0] = 2.0 * (q[1]*q[3] - q[0]*q[2]);
-	R[2][1] = 2.0 * (q[2]*q[3] + q[0]*q[1]);
-	R[2][2] = q[0]*q[0] - q[1]*q[1] - q[2]*q[2] + q[3]*q[3];
 }
 
 void norm(uint8_t len, float x[len]) {

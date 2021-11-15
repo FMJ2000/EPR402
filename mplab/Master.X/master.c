@@ -50,20 +50,19 @@
 
 int main() {
 	delay(100000l);
-
-	float startPos[2] = {0};
+	
+	// bot init
+	float startPos[3] = {0};
 	Bot_Init(&bot, startPos);
-	Init(bot->buf);
-	bot->portCN = 1;
-	Bot_UART_Write(bot, "Bot Initialized...\r\n");
+	
+	// peripheral init
 	uint8_t whoami[2] = {0};
-	IMU_Init(bot->asa, &bot->pos[2], whoami);
-	Bot_UART_Write(bot, "Peripherals Initialized...\r\n");
-
+	Init(bot->buf);
+	IMU_Init(whoami);
 	OLED_Init();
+	
 	OLED_ClearDisplay();
-	snprintf(bot->buf, 100, "imu %d, mag %d", whoami[0], whoami[1]);
-	OLED_Write_Text(0, 0, bot->buf);
+	OLED_Write_Text(0, 0, "imu %d, mag %d", whoami[0], whoami[1]);
 	OLED_Update();
 
 	for (;;);
@@ -88,48 +87,28 @@ void __ISR(_TIMER_1_VECTOR, IPL2SOFT) TMR1_IntHandler() {
 	bot->count++;
 	
 	Bot_Pos_IMU(bot);		// imu pos update @ 40 Hz
+	Bot_Control(bot);
 	
 	if (bot->count % 10 == 0) {
-	    Bot_Pos_Odo(bot);		// odo pos update @ 4 Hz
-			bot->usState = 0;
-			Ultrasonic_Trigger();
-	}
-
-	/*
-	// bot us update at 4 Hz
-	if (bot->count % (FREQ / 4) == 0) {
+		Bot_Pos_Odo(bot);		// odo pos update @ 4 Hz
+		Bot_Trajectory(bot);
 		bot->usState = 0;
-		Ultrasonic_Trigger();
-	}
-
-	// bot pos update and controller at 20 Hz
-	Bot_Pos_Update(bot, bot->count);
-	Bot_Controller(bot);
-
-	// bot odo update and status display at 5 Hz
-	if (bot->count % (FREQ / 5) == 0) {
+		//Ultrasonic_Trigger();
 		Bot_Display_Status(bot);
-		//Bot_Display_BitMap(bot);
 	}
 
-	// bot battery read at 1 Hz
-	if (bot->count % FREQ == 0) {
-	bot->time++;
-	bot->dblClickCount = (bot->time % 2) ? 0 : bot->dblClickCount;
-	if (bot->time == 3) {
-		for (uint8_t i = 0; i < 6; i++) {
-			bot->bias[i] /= bot->numBias;
-			if (i < 3) bot->bias[i] *= M_PI / 180.0;
+	if (bot-> count % FREQ == 0) {
+		bot->time++;
+		bot->count = 0;
+		bot->dblClickCount = (bot->time % 2) ? 0 : bot->dblClickCount;
+		AD1CON1SET = _AD1CON1_SAMP_MASK;
+
+		if (bot->time == 3) {
+			for (uint8_t i = 0; i < 3; i++) bot->bias[i] /= bot->numBias;
+			bot->bias[2] *= M_PI / 180.0;
+			bot->state = (bot->state & ~STATE_MASK) | NAVIGATE;
 		}
-		bot->state = (bot->state & ~STATE_MASK) | NAVIGATE;
 	}
-	AD1CON1SET = _AD1CON1_SAMP_MASK;
-	//Bot_Optimise_Local(bot);
-	if (bot->state & STATE_UART_MASK) Bot_UART_Send_Status(bot);
-	bot->count = 0;
-	bot->portCN = 1;
-	}
-	 */
 }
 
 /* Ultrasonic echo timer */

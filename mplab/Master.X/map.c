@@ -53,7 +53,7 @@ void Map_Update(struct Map * map, float pos[3], float dist[US_SENSORS]) {
 	// iterate through map and update if visible
 	for (uint8_t i = 0; i < MAP_UNITS; i++) {
 		for (uint8_t j = 0; j < MAP_UNITS; j++) {
-			float cellPos[2] = { map->pos[0] + i*MAP_RES - pos[0], map->pos[1] - j*MAP_RES }
+			float cellPos[2] = { map->pos[0] + i*MAP_RES - pos[0], map->pos[1] - j*MAP_RES };
 			float cellAngle = atan2(cellPos[1], cellPos[0]);
 			for (uint8_t k = 0; k < US_SENSORS; k++) {
 				if (fabs(sensorAngles[k] - cellAngle) <= SENSOR_A) {

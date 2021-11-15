@@ -1,6 +1,8 @@
 #ifndef _OLED_H
 #define _OLED_H
 
+#include <stdarg.h>
+
 #include "master.h"
 
 extern const uint8_t SMALL_FONTS[];
@@ -91,6 +93,8 @@ typedef struct _Current_Font_s
 #define TRUE              1u
 #define FALSE             0u
 
+#define OLED_LINE_LEN 24
+
 /*Function Prototypes*/
 void OLED_Init( void );
 uint8_t OLED_Width( void );
@@ -112,6 +116,6 @@ void OLED_Triangle( int16_t x0, int16_t y0, int16_t x1, int16_t y1, int16_t x2, 
 void OLED_Circle( int16_t x_center, int16_t y_center, int16_t radius, uint8_t color);
 void OLED_Image( const uint8_t *image );
 void OLED_Write( int16_t x, int16_t y, char value );
-void OLED_Write_Text( int16_t x, int16_t y, char *text);
+void OLED_Write_Text( int16_t x, int16_t y, char * format, ...);
 
 #endif
