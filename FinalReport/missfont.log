@@ -1,0 +1,28 @@
+mktextfm MnSymbolF12
+mktextfm MnSymbolF12
+mktextfm MnSymbolF12
+mktextfm MnSymbolF12
+mktextfm MnSymbolF12
+mktextfm MnSymbolF9
+mktextfm MnSymbolF7
+mktextfm MnSymbolE12
+mktextfm MnSymbolE9
+mktextfm MnSymbolE7
+mktextfm MnSymbolA12
+mktextfm MnSymbolA9
+mktextfm MnSymbolA7
+mktextfm MnSymbolB12
+mktextfm MnSymbolC12
+mktextfm MnSymbolD12
+mktextfm MnSymbolF5
+mktextfm MnSymbolE5
+mktexpk --mfmode / --bdpi 600 --mag 1+0/600 --dpi 600 MnSymbolE9
+mktexpk --mfmode / --bdpi 600 --mag 1+0/600 --dpi 600 MnSymbolE9
+mktexpk --mfmode / --bdpi 600 --mag 1+0/600 --dpi 600 MnSymbolE9
+mktexpk --mfmode / --bdpi 600 --mag 1+0/600 --dpi 600 MnSymbolE9
+mktexpk --mfmode / --bdpi 600 --mag 1+0/600 --dpi 600 MnSymbolE9
+mktexpk --mfmode / --bdpi 600 --mag 1+0/600 --dpi 600 MnSymbolE9
+mktexpk --mfmode / --bdpi 600 --mag 1+0/600 --dpi 600 MnSymbolC9
+mktexpk --mfmode / --bdpi 600 --mag 1+0/600 --dpi 600 MnSymbolC9
+mktexpk --mfmode / --bdpi 600 --mag 1+0/600 --dpi 600 MnSymbolC9
+mktexpk --mfmode / --bdpi 600 --mag 1+0/600 --dpi 600 MnSymbolC9

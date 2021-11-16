@@ -1,0 +1,1008 @@
+%%
+%%  Department of Electrical, Electronic and Computer Engineering.
+%%  EPR400/2 Final Report - Section 3.
+%%  Copyright (C) 2011-2021 University of Pretoria.
+%%
+
+\section{Design and implementation}
+
+\subsection{Design summary}
+
+This section summarises the project design tasks and how they were implemented (see table \ref{tab:design_sum}).
+
+\begin{longtable}[H]{|p{0.28\textwidth}|p{0.4\textwidth}|p{0.28\textwidth}|} \hline
+    \textbf{Deliverable or task} & \textbf{Implementation} & \textbf{Completion of deliverable or task, and section in the report} \\ \hline
+    Determine sensor input requirements & 
+    It was determined that the system needs 3 ultrasonic sensors to perceive distance, 2 infrared sensors to detect fall hazards, and a 9-DOF IMU and 2 light odometers to calculate the vehicle's position &
+    Completed. Section \ref{sec:sensors} \\ \hline
+    Design the hardware layout on the robot's motherboard &
+    The original PCB design was replaced with a veroboard, which was iteratively optimized through first principles to design and build a small and efficient board & 
+    Completed. Section \ref{sec:veroboard} \\ \hline
+    Design and construct robot body &
+    The robot chassis, motors, wheels, vacuum pump, board and sensors were integrated together in a small autonomous vehicle. & 
+    Completed. Section \ref{sec:robot} \\ \hline
+    Design and construct vacuum pump &
+    The vacuum pump itself is an off-the-shelf hand vacuum, but the integration with the system, including current limiting breakout circuit was designed to control its operation during cleaning. &
+    Completed. Section \ref{sec:vacuum}. \\ \hline
+    Initialize and test peripherals &
+    Peripheral drivers were developed from first principles for the PIC32 microcontroller, for the most efficient implementation and lowest possible latency. &
+    Completed. Section \ref{sec:periph} \\ \hline
+    Design and implement positioning algorithm &
+    A positioning algorithm was implemented from first principles using complementary sensor fusion to position the robot on an internal 2D cartesian map. &
+    Completed. Section \ref{sec:position} \\ \hline
+    Design and implement navigation algorithm &
+    A navigation algorithm was implemented from first principles using ultrasonic proximity detection to reach specific goals and avoid obstacles, as well as control movement intelligently. &
+    Completed. Section \ref{sec:navigation} \\ \hline
+    Design and implement mapping algorithm &
+    A mapping algorithm was implemented from first principles to store visited and obstacle information from the environment to plan routes more effectively. &
+    Completed. Section \ref{sec:mapping} \\ \hline
+    Implement fall-protection algorithm &
+    A simple maneuver to avoid large was developed with mixed success and will not be demoed extensively for the vehicle's safety. &
+    Incomplete. \\ \hline
+    Implement dirt-detection algorithm &
+    The proposed dirt detection solution would have been too complex to incorporate into the system design, without adding any real value, and thus a design choice was taken to not implement this aspect of the system. &
+    Incomplete. \\ \hline
+    Implement autonomous power management algorithm & 
+    An power management algorithm was implemented so that the robot returns to its starting position once it detects low power, but the docking station and mechanics of docking precisely was not implemented. &
+    Incomplete. \\ \hline
+    Integrate in floor-cleaning system &
+    The integration of the positioning, navigation and mapping algorithms cleans a given floor area. &
+    Completed. Section \ref{sec:cleaning} \\ \hline
+    Test and verify results &
+    A range of simulations and experiments were carried out to verify that the robot fulfills the specified requirements, including Python simulations, visual inspection and offline statistical analysis of positioning and navigation data. &
+    Completed. Sections \ref{sec:sim} \& \ref{sec:stats} \\ \hline
+    \caption{Design summary}
+    \label{tab:design_sum}
+\end{longtable}
+
+\subsection{Theoretical background}
+\label{sec:theory}
+
+The mathematical structure of the robot's intelligent interaction with the environment can be divided into 5 subsystems: localization, mapping, control, path planning and navigation, working together to sense and perceive the environment, plan a goal and act to attain the goal.
+
+\subsubsection{Localization}
+\label{sec:localize}
+
+\textbf{Filter motivation}
+
+It is important for the robot to localize itself accurately in its internal representation of the world, as the success of the mapping and collision-free navigation depends on this. Localization is performing through the non-linear sensor fusion of the IMU's measured acceleration and gravity, as well as the measured wheel velocity from the odometers. A design choice was taken not to implement a SLAM algorithm, as multiple localize-only sensors are available to correct for noise and drift, and the sensors used for mapping, the sonar sensors, are quite inaccurate and do not produce a high quality map of the environment, which would make it difficult to use the mapping data successfully in localization. 
+
+Instead a double Unscented Kalman Filter (UKF) is implemented complementing the nature of the sensors and their operation. The IMU can provide a quick succession of angular rate and acceleration values, and due to the transient nature of acceleration, these readings are also most accurate if obtained as continuously as possible. On the other the odometer needs time to measure the rotation of trotation of the wheel, and preemptively extrapolating the wheel spin leads to inaccuracies. 
+
+Combining the strenghts and understanding the shortfalls of the two sensors, we propose a double UKF localization solution. The first filter, known as the "fast" filter, operates at 40 Hz, with its velocity estimate as the process model and incoming IMU data as the measurement model. The second "slow" filter operates at 4 Hz, using the last fast filter estimate as the process model and the incoming odometer readings as the slow filter. The double UKF data flow model is shown in Figure \ref{fig:dukf}.
+
+\begin{figure}
+    \centering
+    \includegraphics[width=0.9\textwidth]{figures/dukf.png}
+    \caption{Double UKF data flow model}
+    \label{fig:dukf}
+\end{figure}
+
+Every real world system deals with uncertainty in its processes and measurement data, which makes it difficult to accurately estimate a system's state, i.e. the important variables that describe a system in the world. Kalman filters solve the uncertainty problem with statistical probability representations of its state. Assuming that a state's uncertainty is approximately normally distributed, the essence of the state's expected values can be described by only keeping track of its mean and covariance. The Kalman filter updates the mean and covariance of the state over time using a dynamic Bayesian filter. Not only that, but if the process and measurement models are linear, the Kalman filter is the least squares approximator of the system, leading to optimal estimations of the state. 
+
+In reality most systems are non-linear, and thus the standard Kalman filter has to be expanded to deal with process or measurement non-linearities. Two common approaches are model linearization, also known as the Extended Kalman filter (EKF), and the unscented transformation of specific state estimates, also known as the Unscented Kalman filter (UKF). This paper implements a UKF to solve sytem dynamics, as it is generally more accurate, but also because the UKF is well suited to the nature of the problem. The localization problem is framed in such a way to require two semi-independent filters, one fast and one slow. Yet the data should still be comparable between the models. By creating the sigma points in the slow filter and updating the systems belief based on those sigma points in the fast filter, the slow filter will have access to both the original data from the previous iteration and the update estimate from the fast filter. This simplifies the design process and enables the UKF to work correctly.
+
+\textbf{UKF theory}
+
+A UKF filters data by creating a set of sigma points from the state, which are processed to obtain an estimate of the current state of the system. This is statistically combined with an estimate from the measurement data to produce a new state estimate. The sigma points are used to reconstruct the distribution of the state after the non-linear transform, and thus each point is offset from the mean by a specific amount. The deviation, also known as weights $W$ are obtained by the Cholesky decomposition of the covariance $P$ with noise $Q$ of the state $x$. 
+
+The Cholesky decomposition is effectively the square root of a matrix, and determines $L$, where $A=L^TL, L=\sqrt{A}$. Each position $(i,j)$ of $L$ can be calculated as
+
+\begin{align}
+    L_{ij} &= \left\{ \begin{array}{ll}
+        \sqrt{A_{ij} - \sum_{k=0}^{j-1} L_{jk}^2} & \text{if } i = j \\
+        \dfrac{1}{L_{jj}} \sqrt{A_{ij} - \sum_{k=0}^{j-1} L_{jk}^2} & \text{otherwise }
+    \end{array}
+    \right.
+\end{align}
+
+The set of sigma points $\{X_i\}$ are obtained as
+
+\begin{align}
+    W_i &= \text{columns}(\sqrt{2n \cdot (P_{k-1}+ Q}) & i &= 1...n \\
+    W_{i+n} &= \text{columns}(-\sqrt{2n \cdot (P_{k-1}+ Q})  & i &= n+1...2n\\
+    X_i &= \hat{x}_{k-1} + W_i & \text{i = $1$...$2n$}
+\end{align}
+
+where $n$ is the dimensionality of the state vector. The sigma are transformed through the non-linear process model $A(x, q)$ to obtain the processed points $\{Y_i\}$, as well as the measurement model $H(x, r)$, to obtain the measured points $\{Z_i\}$. The noise variables $q$ and $r$ are set to zero, as noise has already been added into the points as $Q$.
+
+\begin{align}
+    Y_i &= A(X_i, 0) \\
+    Z_i &= H(X_i, 0) 
+\end{align}
+
+The mean and covariance of $\{Y_i\}$ and $\{Z_i\}$ are calculated as the weighted sum and correlation of the sets. The measurement noise $R$ is added to the measured covariance $P_{zz}$.
+
+\begin{align}
+    x_k^{-} &= \sum_{i=0}^{2n}W_i^{(m)} Y_i & z_k^{-} &= \sum_{i=0}^{2n}W_i^{(m)} Z_i \\
+    P_k^{-} &= \sum_{i=0}^{2n}W_i^{(c)} \{Y_i - x_k^{-}\}\{Y_i - x_k^{-}\}^T & P_{zz,k} &= \sum_{i=0}^{2n}W_i^{(c)} \{Z_i - z_k^{-}\}\{Z_i - z_k^{-}\}^T \\
+    & & P_{vv} &= P_{zz} + R
+\end{align}
+
+The Kalman gain $K_k$ represents the weighted degree of confidence the system has in the process and measurement models respectively, and is calculated with the cross-correlation of $\{Y_i\}$ and $\{Z_i\}$, $P_{xz}$, which aids in understanding how the process and measurement data influence each other.
+
+\begin{align}
+    P_{xz} &= \sum_{i=0}^{2n}W_i^{(c)} \{Y_i - x_k^{-}\}\{Z_i - z_k^{-}\}^T \\
+    K_k &= P_{xz} P_{vv}^{-1}
+\end{align}
+
+Finally the mean and covariance of the system can be updated as the Kalman weighted sum of the process and measurement estimate.
+
+\begin{align}
+    x_k &= x_k^{-} + K_k (z - z_k^{-}) \\
+    P_k &= P_k^{-} - K_k P_vv K_k^T
+\end{align}
+
+\textbf{Fast UKF Process model}
+
+\textbf{Slow UKF Process Model}
+
+\subsubsection{Mapping}
+\label{sec:mapping}
+
+Localization by itself does not present the robot with enough information to act intelligently. The robot should have an idea about how the environment looks and works, not necessarily in extreme detail, but at least clear enough so that the robot can plan paths to specific goals and prevent collisions with obstacles in the environment. The robot needs a map, either as a point-based representation of obstacles or as a planar grid map describing the occupancy of each position.
+
+The latter representation is known as an occupancy grid map, a two dimensional grid of cells, where each cell has a value between 0 (free) and 1 (occupied). Even though the graph represents binary occupancy, i.e. it assumes that each cell is either completely free or completely occupied, a cell's value will typical be a decimal value between the two extremes. This is necessary to account for the uncertainties in the sensor readings perceiving the environment. Sonar range technology as employed in this project can be quite inaccurate and is prone to outlier vulnerabilities. By storing the probability that a cell is occupied rather than just a zero or one, the system is more flexible to deal with uncertainties by updating the map based on recurrent consensus of the occupancy of a cell over time. The probabilistic representation of the map is also desirable as it can be processed with Bayesian filtering. 
+
+Mapping large areas can quickly become large, complex problems. Therefore, to simplify the problem, we assume three things about the nature of the world and the map. First, it is assumed that every cell is either completely occupied or completely free, which is known as the occupancy assumption. Secondly, it is assumed that the world is static, no dynamic object except for the robot traverses the state space, which is known as the static assumption. Thirdly it is assumed that each cell is independent of one another, which is known as the independence assumption. It is clear that these assumptions do not always hold, a person can easily walk through the mapped area and it is quite reasonable to believe that some cells are partially covered or that the presence of an obstacle in one cell affects the probability of an obstacle in the next one. Fortunately the inaccuracies introduced by these assumptions are usually negligible, while the incorporation of these assumptions into the model produces a vastly simplified problem to solve.
+
+\textbf{Static Binary Bayes Filter}
+
+Given sensor data $z_{1:t}=\{z_1,z_2,...,z_t\}$ and input controls $u_{1:t}=\{u_1,u_2,...,u_t\}$, the objective of the mapping algorithm is to calculate the most likely map $m*$, where $m*$ is the maximum likelihood estimate of map given the input data:
+
+\begin{align}
+    m* &= \text{argmax}_m p(m|z_{1:t}, x_{1:t})
+\end{align}
+
+using the independence assumption $p(m_j|m_i) = p(m_j)$ for cells $i$ and $j$ in the map, the problem reduces to a joint probability or product of the individual cells, which can be expressed using Bayes rule,
+
+\begin{align}
+    p(m|z_{1:t},x_{1:t}) &= \prod_i p(m_i|z_{1:t},x_{1:t}) \\
+    p(m_i|z_{1:t},x_{1:t}) &= \dfrac{p(z_t|m_i,z_{1:t-1},x_{1:t}) p(m_i|z_{1:t-1},x_{1:t})}{p(z_t|z_{1:t-1},x_{1:t})}
+    \label{eq:bayes_rule}
+\end{align}
+
+which describes the probability that a cell is occupied given sensor data proportional to the probability of the sensor data given that the cell is occupied. A useful property of Bayesian network is the Markov assumption, which states that the future state of the system is conditionally independent of past states, given the current state. Thus, equation \ref{eq:bayes_rule} can be simplified by removing all past sensor data, $z_{1:t-1}$, given current data $z_t$ and by disregarding future input controls, $x_t$, given the current map $m_i$.
+
+\begin{align}
+    p(m_i|z_{1:t},x_{1:t}) &= \dfrac{p(z_t|m_i,x_t) p(m_i|z_{1:t-1},x_{1:t-1 })}{p(z_t|z_{1:t-1},x_{1:t})}
+\end{align}
+
+Bayes rule can be applied once again to the first term in the numerator, and multiplied back into the equation
+ 
+\begin{align}
+    p(z_t|m_i,x_t) &= \dfrac{p(m_i|z_t,x_t)p(z_t|x_t)}{p(m_i|x_t)} \\
+    p(m_i|z_{1:t},x_{1:t}) &= \dfrac{p(m_i|z_t,x_t)p(z_t|x_t) p(m_i|z_{1:t-1},x_{1:t-1 })}{p(m_i|x_t)p(z_t|z_{1:t-1},x_{1:t})}
+\end{align}
+
+A few terms in this equation are difficult to estimate, such as $p(z_t|x_t)$, which estimates the probability of a sensor given a position with no mapping information, and $p(m_i|x_t)$, which estimates the probability of a cell's occupancy given a position without sensor data. The second term can be simplified by assuming the map is independent of a robot's position in the absence of sensor data, $p(m_i|x_t) = p(m_i)$, which represents the prior probability that any cell in a map is occupied. This prior would be high in a thickly crowded environment and low in an area with large open spaces.
+
+As the occupancy grid map represents binary data, i.e. each cell is either occupied or free, the Bayesian filter for the opposite event is valid, and thus the ratio of the two probabilities can be expressed and simplified as:
+
+\begin{align}
+    p(\neg m_i|z_{1:t},x_{1:t}) &= \dfrac{p(\neg m_i|z_t,x_t)p(z_t|x_t) p(\neg m_i|z_{1:t-1},x_{1:t-1 })}{p(\neg m_i)p(z_t|z_{1:t-1},x_{1:t})} \\
+    \dfrac{p(m_i|z_{1:t},x_{1:t})}{p(\neg m_i|z_{1:t},x_{1:t})} &= \dfrac{\dfrac{p(m_i|z_t,x_t)p(z_t|x_t)     p(m_i|z_{1:t-1},x_{1:t-1 })}{p(m_i)p(z_t|z_{1:t-1},x_{1:t})}}{\dfrac{p(\neg m_i|z_t,x_t)p(z_t|x_t) p(\neg m_i|z_{1:t-1},x_{1:t-1 })}{p(\neg m_i)p(z_t|z_{1:t-1},x_{1:t})}} \\
+    &= \dfrac{p(m_i|z_t,x_t) p(m_i|z_{1:t-1},x_{1:t-1})p(\neg m_i)}{p(\neg m_i|z_t,x_t) p(\neg m_i|z_{1:t-1},x_{1:t-1}p(m_i)}
+\end{align}
+
+The occupancy assumption simplifies $p(\neg m_i) = 1 - p(m_i)$ as
+
+\begin{align}
+    \dfrac{p(m_i|z_{1:t},x_{1:t})}{1 - p(m_i|z_{1:t},x_{1:t})} &= \dfrac{p(m_i|z_t,x_t)}{1 - p(m_i|z_t,x_t)} \dfrac{p(m_i|z_{1:t-1},x_{1:t-1})}{1 - p(m_i|z_{1:t-1},x_{1:t-1})} \dfrac{(1 - p(m_i)}{p(m_i)}
+    \label{eq:map_ratio_bayes}
+\end{align}
+
+From Equation \ref{eq:map_ratio_bayes} it is evident that the system consists of three parts. The $p(m_i|z_t,x_t)$ term describes the influence of the current sensor observation $z_t$, the $p(m_i|z_{1:t-1},x_{1:t-1})$ term describes the influence of the estimate from the previous state of the cell, and the $p(m_i)$ term describes the influence of the a priori information of the map, independent of sensor measurements.
+ 
+Equation \ref{eq:map_ratio_bayes} currently describes the odds ratio $Odds(x) = \dfrac{p(x)}{1 - p(x)}$ of the probability. Using simple algebra the probability $p(x)$ can be recovered.
+
+\begin{align}
+    Odds(x) &= \dfrac{p(x)}{1 - p(x)} \\
+    p(x) &= Odds(x) - Odds(x) p(x) \\
+    p(x)(1 + Odds(x)) &= Odds(x) \\
+    p(x) &= \dfrac{Odds(x)}{1 + Odds(x)} = \dfrac{1}{1 + \dfrac{1}{Odds(x)}}
+\end{align}
+
+which finally leads to the equation for $p(m_i|z_{1:t},x_{1:t})$,
+
+\begin{align}
+    p(x) &= [1 + Odds(x)^{-1}]^{-1} \\
+    p(m_i|z_{1:t},x_{1:t}) &= \left[1 + \dfrac{1 - p(m_i|z_t,x_t)}{p(m_i|z_t,x_t)} \dfrac{1 - p(m_i|z_{1:t-1})}{p(m_i|z_{1:t-1},x_{1:t-1}),x_{1:t-1})} \dfrac{p(m_i)}{(1 - p(m_i)}\right]^{-1}
+\end{align}
+
+\textbf{Log-Odds Notation}
+
+However, applying the latter equation to every cell in a grid map can quickly become computationally expensive, and given that the mapping algorithm has to coexists with other algorithms on a resource constrained microcontroller, it is imperative to optimize the algorithm even further.
+
+First, let us define the log-odds of the probability of $x$ and its inverse as
+
+\begin{align}
+    l(x) &= \log \dfrac{p(x)}{1 - p(x)} & p(x) &= 1 - \dfrac{1}{1 + e^{l(x)}}
+\end{align}
+
+representing the map in log-odds space reduces the mapping equation to
+
+\begin{align}
+    l(m_i|z_{1:t},x_{1:t}) &= l(m_i|z_t, x_t) + l(m_i|z_{1:t-1}, x_{1:t-1}) - l(m_i) \\
+    l_{t,i} &= h(m_i, x_t, z_t) + l_{t-1,i} - l_0
+    \label{eq:logodds_recur}
+\end{align}
+
+where $h(x)$ is the measurement model that relates a new measurement to a log-odds probability. Equation \ref{eq:logodds_recur} clearly shows the recursive nature of the algorithm, as each update step just involves an addition of the new sensor data probability and a subtraction of the prior probability. Updating a log-odds map is fast, efficient and even allows parallelism, as none of the map cells are dependent on one another.
+
+\textbf{Measurement model}
+
+The map algorithm only updates the cells that are currently in the field of view of the sonar sensors, which emits a sonar signal in the form characterized in Figure \ref{fig:sonar_grid}.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\textwidth]{figures/sonar_grid.png}
+    \caption{Map grid cells in field of view of sonar sensor. Courtesy Burgard \cite{burgard_mr}.}
+    \label{fig:sonar_grid}
+\end{figure}
+
+A few properties of the sensor is apparanet from Figure \ref{fig:sonar_grid}. Firstly, the sonar does not emit a directed beam in a specific direction, but has a deviation angle $\theta$ from which an emitted beam can be reflected back. Secondly, the sensor only detects the nearest object in its field of view (FOV), regardless of the view's width. This is can be shown by the arc of dark cells at the end of the beam, any of which can be the location of the real object. To deal with uncertainty in the measurement, a cell's modified probability depends on the cell's relative distance to the perceived obstacle and its deviation from the center of the sensor's orientation.
+
+\begin{figure}
+    \centering
+    \includegraphics[width=0.8\textwidth]{figures/sonar_dist_p.png}
+    \caption{Distance dependent probability update. Courtesy Burgard \cite{burgard_mr}.}
+    \label{fig:sonar_dist_p}
+\end{figure}
+
+Figure \ref{fig:sonar_dist_p} describes the occupancy confidence of cells in the FOV, based on on where they are on the sensor distance line. The sensor confidence can be expressed in terms of constants $d_1, d_2, d_3$, which estimate the sensor noise and general thickness of obstacles. Cells that lay between $x_t$ and $z_t-d_1$ are perceived to be unoccupied, and will have a low probability, cells between $z_t-d_1$ and $z_t+d_1$ gradually increase in occupancy confidence as the measured distance approaches. Cells between $z_t+d_1$ and $z_t+d_2$ are regarded as obstructed, even with noise in the sensor it is reasonable to assume an obstruction $d_1$ further from the reading. Finally cells between $z_t+d_2$ and $z_t+d_3$ technically behind the sensed obstacle and thus no information about their occupancy is available. The same is true for cells beyond $z+d_3$. This can be evaluated in a piecewise function as
+
+\begin{align}
+    d &= \sqrt{(m_{i,x} - x_{t,x})^2 + (m_{i,y} - x_{t,y})^2} \\
+    p(m_i) &= \left\{ \begin{array}{ll}
+        p_{LOW} & d \leq z_t + d_1 \\
+        p_{LOW} + \dfrac{p_{HIGH} - p_{LOW}}{2d_1} (d - z_t - d_1) & z_t-d_1 < d \leq z_t+d_1  \\
+        p_{HIGH} & z_t+d_1 < d \leq z_t+d_2 \\
+        p_{HIGH} - \dfrac{p_{HIGH} - p_0}{d_3 - d_2} (d - z_t+d_3) & z_t+d_2 < d \leq z_t+d_3 \\
+        p_0 & d > z_t + d_3
+    \end{array}
+    \right.
+\end{align}
+
+\begin{figure}
+    \centering
+    \includegraphics[width=0.7\textwidth]{figures/sonar_angle_p.png}
+    \caption{Angle dependent probability update. Courtesy Burgard \cite{burgard_mr}.}
+    \label{fig:sonar_angle_p}
+\end{figure}
+
+Figure \ref{fig:sonar_angle_p} shows a cell that is deviated from the center of the sonar's FOV by $\theta$. Assuming that sensor readings at a deviated angle will be less accurate and more prone to errors, it is wise to multiply the proposed confidence with a Gaussian distributed weight around the deviation $\theta$. The probability density function $f(x)$ of a normally distributed set equates to
+
+\begin{align}
+    f(x) &= \dfrac{1}{\sigma\sqrt{2\pi}} e^{-\dfrac{(x - \mu)^2}{2\sigma^2}}
+\end{align}
+
+with standard deviation $\sigma$ and mean $\mu = 0$, which can be used to calculate the Gaussian weight $s_\theta$ as
+
+\begin{align}
+    s_\theta &= \left\{ \begin{array}{ll}
+        \dfrac{1}{\sigma\sqrt{2\pi}} e^{-\dfrac{\theta^2}{2\sigma^2}} & \theta \leq 0 \\
+        \dfrac{1}{\sigma\sqrt{2\pi}} e^{-\dfrac{(1 - \theta)^2}{2\sigma^2}} & \theta > 0
+    \end{array}
+    \right.
+\end{align}
+
+Finally the measurement model can be expressed as
+
+\begin{align}
+    h(m_i, x_t, z_t) &= \log \dfrac{s_\theta p(m_i)}{1 - s_\theta p(m_i)}
+\end{align}
+
+Modern approaches tend to integrate the localization and mapping problems in one of several SLAM algorithms. This approach was not pursued intentionally as those algorithms require a lot of computational power and quite accurate distance readings. The proposed system has neither, working with a low-end microcontroller and low quality sonar sensors, but rather maps the world with known poses, thus it assumes localization is fairly accurate. The focus now shifts from a highly complex simultaneous optimization problem to ensuring accurate positioning, which is done through the incorporation of three different sensors in a sophisticated UKF for precise state estimation.
+
+\subsubsection{Control}
+\label{sec:control}
+
+The passive aspects of the system have been dealt with, and the robot can effectively estimate its position and perceive the environment, but so far it is unable to plan paths nor act on those plans. In this section we assume a path has already been determined, and investigate the methods the robot employs to reach this goal accurately and timely.
+
+The simplest control model aims to reach a desired state $x'$ from its current state $x$ by sending a set of controls $u$ to its actuators, producing state $y$. This model does not incorporate any perceptual information about the environment and is an open loop controller. This model is vastly insufficient for any system operating in the real world, as it does not account for noise, faulty actuators or dynamic unexpected events. A better model also incorporates sensor data to update the estimate of its state in what is known as a closed loop feedback controller.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{figures/open_loop.png}
+    \caption{Open loop vs. closed loop controller}
+    \label{fig:open_loop}
+\end{figure}
+
+A closed loop controller continually uses sensor data to update the error, $e$, between the desired and current states. The data flow model for a closed loop controller is given in Figure \ref{fig:closed_loop}, showing the interaction between the desired state $x_t'$, the current state $x_t$, the measured state $z_t$ and the input controls $u_t$. Process nosie $\epsilon_t$ and measurement noise $\delta_t$ also affect the system. The controller's objective is to relate the error between the desired and current state to the required input controls that will eventually result in the robot reaching the goal.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{figures/closed_loop.png}
+    \caption{Closed loop controller data flow model}
+    \label{fig:closed_loop}
+\end{figure}
+
+\textbf{PID controller theory}
+
+Let us first examine a generic feedback controller with the above-mentioned parameters. The simplest controller would set the input proportional to the error,
+
+\begin{align}
+    u_t &= K_p (x' - x_t) \\
+    &= K_p e_t, K_p < 1
+    \label{eq:p-control}
+\end{align}
+
+where $K_p$ is the proportionality constant. Limiting $K_p$ to be less than one ensures that the system produces an input smaller than its perceived error, leading to a stable system response. On the other hand, if $K_p > 1$ the system would produce input larger than the error, which can lead to positive feedback and instability. 
+
+The controller in Equation \ref{eq:p-control} works theoretically, but three physical phenomenon can degrade the quality of the system response. Firstly, the system is susceptible to noise, both in the actuators and in the sensors, which can lead to oscillations around the desired goal state, second a delay between the system's response and its perception of the reponse can lead to overcompensation for an action that has already been adjusted for, but due to inertia or sensor characteristics the effect is not seen yet. Thirdly, in the case where the system controls for the rate of change of a particular variable, such as the velocity of the robot's position, just reaching the desired position is not sufficient, as the system's velocity will cause it to overshoot. Rather the system should act in a manner to compensate for both its state and the rate of change of the state, to reach the goal state and remain there.
+
+Noise and delay can be reduced by setting a lower value of $K_p$, but it can lead to a slower convergence rate. This is effectively a trade-off between fast convergence and low steady-state error, depending on the design requirements. In the latter case the system can be modelled more accurately according to Equation \ref{eq:pd-model}, accounting for both its state and its rate of change or derivative. This will ensure that the input is not only dependent on the magnitude of the error, but also the rate at which we are reducing the error, to ensure low oscillatory behaviour in the vicinity of the goal. As a bonus, the introduction of a derivative term facilitates the use of a larger stable proportional constant, leading to faster convergence.
+
+\begin{align}
+    x_t &= x_{t-1} + \Dot{x}\Delta t
+    \label{eq:pd-model} \\
+    u_t &= K_p (x' - x_t) + K_d (\Dot{x}' - \Dot{x}_t) \\
+    u_t &= K_p e_t + K_d \dfrac{de_t}{dt}
+\end{align}
+
+A final modification can be made to the controller by considering the problem of steady state errors. These are small errors in the state when in the vicinity of the goal that accumulate over time to take the system off course. This is, for example, applicable if the desired state is a certain velocity to reach a faraway target, but due to a small deviation the target is not reached. Steady state errors are usually small enough that the proportional controller do not correct for them, or at least cannot do so effectively, as it is designed to deal with large inaccuracies. The solution is to correct for the integral of the error over time as part of the controller.
+
+\begin{align}
+    u_t &= K_p (x' - x_t) + K_d (\Dot{x}' - \Dot{x}_t) + K_i \int_0^t (x' - x_t) dt \\
+    u_t &= K_p e_t + K_d \dfrac{de_t}{dt} + K_i \int_t e_t dt
+\end{align}
+
+The introduction of the integral term does however put the system in danger of the error build up, also known as the wind-up effect. If the robot does not act in the way it ought to, according to its model, which can happen if it is for example stuck in a hole. The integral error will continue to increase dramatically and completely disrupt the system once the robot comes out of the hole. The solution is to only integrate the error over fixed periods of time instead of over all possible time, which will at least contain the integral error to an upper manageable limit.
+
+\textbf{Motor control}
+
+With the theoretical foundation laid, we can proceed to the mathematical models of the motor and position controllers. The motor controller restricts its operation to the performance and expectation of the motors, and aims to reduce the error between the real and desired translational and rotational velocities $(v,\omega)$. This controller not only assumes that the desired position is known, but also that the position controller, described below, established the required velocities $(v,\omega)$ to reach the goal. The motivation for the separation of the two systems is that it produces a two modular, independent software components that can function semi-independent of one another, which eases development, debugging and maintenance. For the motor controller this allows a simplistic and focused model, and for the position controller this abstracts away the physical implementation of the velocities, once again simplifying and focusing its model.
+
+The motor controller has state $\mathbf{x} = \{v, \omega\}$, where $v$ describes the forward velocity and $\omega$ the angular velocity of the robot. The desired state is of the same form $\mathbf{x}' = \{v', \omega'\}$. The input controls are the duty cycles that drive the PWM of the left and right motors, $\mathbf{u} = \{u_l, u_r\}$, and must have a value between -1 and 1. The sensors are the light-based odometers attached to the shafts of each wheel, which record the amount of holes $n$ in a wheel encoder that passes by in a specific time frame $\Delta t$. This is easily converted angular velocity of the wheel, $\omega_i$, and forward velocity, $v_i$, as
+
+\begin{align}
+    d_i &= r\omega_i = \dfrac{2 \pi r n}{N \Delta t} \\
+\end{align}
+
+with $N$ the total amount of holes in the encoder and $r$ the radius of the wheels. The error forward and angular velocity is calculated as $\mathbf{e}=\{e_v, e_\omega\}$, using the chassis length $l$. The motor controller implements a simple proportional controller in as Equation \ref{eq:p-control-motor}.
+
+\begin{align}
+	e_v &= v' - \dfrac{v_r + v_l}{2} & e_\omega &= \omega' - \dfrac{v_r - v_l}{l} \\
+    \begin{bmatrix} u_r \\ u_l \end{bmatrix} &= K_p \begin{bmatrix}
+        1 & K_\omega \\
+        1 & -K_\omega
+    \end{bmatrix} \begin{bmatrix}
+        e_v \\ e_\omega
+    \end{bmatrix}
+    \label{eq:p-control-motor}
+\end{align}
+
+In essence the controller uses the translational velocity to set a velocity bar for both wheels, which is offset one way or another depending on the direction and magnitude of the desired angular velocity.
+
+\textbf{Position control}
+
+The position controller aims to move the robot from its current position to its desired position by dynamically updating the required translational and angular velocities needed to get there with a PID-controller. The controller has state $\mathbf{x} = \{x, y, \theta\}$, describing the current position and orientation of the robot in 2D state space, as well as desired state $\mathbf{x}'=\{x', y'\}$ as the goal and $\mathbf{u} = \{v, \omega\}$ as the input controls to the motor controller.
+
+The first step is to obtain the distance and angular offset error between the current and desired state, which effectively converts the error to polar form.
+
+\begin{align}
+    e_t &= f(\mathbf{x}' - \mathbf{x}) \\
+    \begin{bmatrix} e_r \\ e_\theta \end{bmatrix} &= \begin{bmatrix}
+        \sqrt{(x' - x)^2 + (y' - y)^2} \\
+        \text{atan2}(y' - y, x' - x) - \theta
+    \end{bmatrix}
+\end{align}
+
+the C function \texttt{atan2()} is used as it respect the sign of the angle. Using the previous error states $e_{1:t-1}$, the integral and derivative terms can be calculated as
+
+\begin{align}
+    \int_0^t e_t d_t &= \sum_{i=0}^t e_i \Delta t = \sum_{i=0}^{t-1} e_i \Delta t + e_t \Delta t \\
+    \dfrac{de_t}{dt} &= \dfrac{e_t - e_{t-1}}{\Delta t}
+\end{align}
+
+where the $\sum_{i=0}^{t-1} e_i \Delta t$ is the sum of all previous errors up to $e_{t-1}$ and is updated recursively. Finally the PID-controller can be implemented as
+
+\begin{align}
+    u_t &= K_p e_t + K_i \int_0^t e_t dt + K_d \dfrac{de_t}{dt} \\
+    \begin{bmatrix} u_v \\ u_\omega \end{bmatrix} &= 
+    \begin{bmatrix} K_{p,r} \\ K_{p,\theta} \end{bmatrix}
+    \begin{bmatrix} e_{t,r} \\ e_{t,\theta} \end{bmatrix} +
+    \begin{bmatrix} K_{i,r} \\ K_{i,\theta} \end{bmatrix}
+    \begin{bmatrix} \int_0^t e_{t,r} dt \\ \int_0^t e_{t,\theta} dt \end{bmatrix} +
+    \begin{bmatrix} K_{d,r} \\ K_{d,\theta} \end{bmatrix}
+    \begin{bmatrix} \Dots{e}_{t,r} \\ \Dots{e_{t,\theta}} \end{bmatrix} 
+\end{align}
+
+\subsubsection{Path planning}
+\label{sec:path-plan}
+
+\subsubsection{Navigation}
+\label{sec:navigation}
+
+\subsection{Simulations}
+\label{sec:sim}
+
+\subsection{Hardware Design and Implementation}
+
+\subsubsection{Sensors}
+\label{sec:sensors}
+
+The autonomous vacuum cleaner has to interact with the environment in an intelligent manner, having knowledge of the landscape as well as its own observed actions. Thus, choosing the sensor components that will give real-time measurement input to the system is an integral first step in the journey towards robotic perception. The required input data aims to update the robot's perception of reality primarily in two ways: input that tells the robot about the environment, and input that observes the robot's actions. \\
+
+The sensor input that describes the environment has to quantify the landscape by measuring the distance to obstacles in the horizontal plane close to the floor. Ideally the robot should be able to get a sense of the position of a measured obstacle relative to itself, thus both the distance to and the approximate direction of the obstacle is required. The potential sensor candidates include Lidar sensors, cameras, ultrasonic sensors and infrared scanners. \\
+
+After thorough research and requirements evaluation it became clear that HC-SR04 ultrasonic sensors are the most suitable candidate for the system. An ultrasonic sensor is a distance sensing device that contains a transmitter and a receiver used to emit and receive an ultrasonic pulse respectively. Transmission of a 40kHz signal pattern starts while an echo pin is simultaneously pulled high until the transmitted pulse is reflected back into the receiver module. Measuring the length of the travelling pulse, while assuming that the speed of sound is known and approximately constant, the distance to the nearest obstacle in the direction of the sensor can easily be determined. The sensor does however have a $30^\circ$ total angular range or field of view within which the closest object will be detected. This leads to uncertainty in the exact location of the obstacle, as any position in a arc around the sensor's view could produce a reading at the specific distance. Despite this challenge, which will be addressed later on, the ultrasonic sensor is still the best sensor for the job due to the little post-processing required to interpret its measurement data, its large measurement range (2cm - 4m), its ability to operate in low lighting conditions and its relatively low power consumption, which is important for a system that runs on batteries. \\
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.5\textwidth]{figures/hcsr04_waves.png}
+    \caption{HC-SR04 ultrasonic wave operation}
+    \label{fig:hcsr04_waves}
+\end{figure}
+
+The system implements three HC-SR04 sensors in a semi-circle around the front of the robot, placed at such an angle that the three sensors collectively scan a $120^\circ$ field of view directly ahead of the robot, with each sensor placed offset by $40^\circ$ relative to one another. The $10^\circ$ blind spot produced by this design is small enough that it is highly unlikely that an obstruction can hide in there, without showing up in measurement readings on either side of the gap, especially across different samples taken at different locations. \\
+
+A glaring limitation prohibits the use of higher resolution sensor components, such as cameras or lidar, which is the amount of processing power and more importantly, memory, required to effectively analyse incoming data. Computer vision algorithms are bulky and expensive, requiring tens of thousands of matrix operations and several levels of filtering, processing and AI-based sorting to work. These approaches are unfeasible for the simple, low-cost solution that this project aims to implement. Memory is a particularly constrained resource in an embedded system, with every single byte of stored space important. An array of photos in different processing stages taking up a few megabytes of storages is simply not an option. \\
+
+The second set of sensors address the potential non-determinism in the robot's expected actions. The robot navigates the world by setting the duty cycle of the motors turning the wheels. This action is quite simple, but prone to process noise. For example, if both motors receive the same PWM duty cycle, the expected outcome is forward propagation in a straight line, but due to differences in friction, magnetic field strength and physical construction, one of the motors inevitable turns a little bit faster than the other one, which slowly takes the robot off course until it finds itself in a completely different location and orientation than its internal map of the world expects it to be. \\
+
+The solution to actuator uncertainty involves an observation feedback loop coupled with a PI-controller, which will be explored in another section. The observation feedback loop observes properties of the robot that directly or indirectly provides information about the state of the device. These measurements are fused with the robots own estimation of its state to produce an updated state. Five sensor components are chosen for this task, a gyroscope, accelerometer and magnetometer combined in a 9-DOF IMU, as well as two odometers placed on the left and right wheels of the robot. Together these sensors can measure angular rate, velocity, acceleration and magnetic induction in three dimensions, potentially providing more than enough information to correct the robot's estimate of its state. \\
+
+As the robot only operates on a 2D plane, assuming that the robot will never fall of a cliff (not that accurate positioning will be of much use in that case in anyway), we can neglect measurement data in certain dimensions, such as the roll and pitch of the gyroscope and the gravitational tug in the vertical direction from the accelerometer. This simplifies the sensor fusion algorithms as we focus on the sensor data that have a real impact on the positioning of the robot. \\
+
+In summary, the gyroscope, accelerometer and magnetometer of the MPU9250 IMU sensor works in conjunction with two light emitting odometers attached to the wheels to accurate estimate the position of the robot in its internal map of the world. Unfortunately the accelerometer has to be placed on an exactly level plane to prohibit gravity from affecting the readings on the horizontal plane. The gyroscope is also infamous for large amounts of bias and bias instability, leading to wildly inaccurate readings. To overcome both of these problems, the robot stays in an initialization state for three seconds upon startup, during which at least 30 IMU sensor measurement are taken. As the robot is assumed to be stationary, any deviation from the expected values can be interpreted as bias. The average of the measured bias is subsequently subtracted from every measurement taken during navigation. This relaxes the requirement for a flat accelerometer and accurate gyroscope, and experimental results prove that this simple bias removal technic vastly improves the accuracy of the measurement model state estmation.
+
+\subsubsection{Veroboard}
+\label{sec:veroboard}
+
+The veroboard design initially started out as a desperate attempt to build a working prototype after several iterations of PCB boards failed to work. As veroboards are a lot easier to change, redo and improve, a design choice was taken to stick to veroboard prototyping. The veroboard is home to a small ecosystem of components, each playing their part in making the system work as a whole. \\
+
+The most important component on the board is the PIC32MX270F256-B microcontroller from Microchip, boasting a 40 MHz clock, 256kB of flash memory and 64kB of SRAM, as well as the MIPS32 RISC architecture. The chip has 28 pins, of which 17 can be used as general purpose input/output (GPIO) pins. With 14 peripheral devices, some requiring more than one pin, it seemed impossible to reconcile the large peripheral need with the low pin count. Fortunately, through a mixture of iteration, optimization and careful design, creative methods were developed to squeeze as much functionality out of the pins as possible. \\
+
+For example, originally the three ultrasonic distance sensors each had to be triggered by a separate trigger pin to start a distance reading, while the measurement occured on another separate echo pin. Thus 6 out of 28 pins were wasted on one aspect of the peripheral components. Then it was discovered that the same echo pin can be reused if the correct assortment of diodes and resistors are used to pull the line low between readings and to eliminate power loss on the shared bus. So now we are down to three trigger pins and one echo pin. Triggering all three pins at once will result in potential crosstalk between the sensors and should be avoided. Finally it was found that triggering a pin and listening to an echo has the same characteristic pulse on a line, thus if the echo pin of sensor 1 is connected to the trigger pin of sensor 2, a completed measurement on sensor 1 will automatically start transmission on sensor 2. This was the final breakthrough that allowed the system to dedicate only 2 pins to all three ultrasonic sensors, while simplifying the code necessary to operate these components. \\
+
+Another example is the sharing of the I$^2$C bus. The IMU, magnetometer and OLED display screen communicate via I$^2$C. Thus by connecting the three components to the same two wires can be used for SDA and SCL, using I$^2$C addressing to announce the recipient of a message. Lastly, further optimization took place by only dedicating one pin, TX to the UART, as it is assumed that the robot will not receive any data but will only be used to display information. \\
+
+\subsubsection{Robot body}
+\label{sec:robot} 
+
+\subsubsection{Power management}
+\label{sec:power}
+
+Part of the design requirements of the robot describes the need to autonomously manage the robot's power consumption, whereby it returns back to the docking station (or starting location) once it detects low battery capacity. The robot can detect remaining capacity by measuring the voltage over the batteries. A single 18650 battery is fully charged at 4.2V, nominal at 3.7V and flat at 3.2V. The system has three 18650 batteries in series, thus it will be fully charged at 12.6V and dead at 9.6V. We would ideally want to halt operation and return back to the charger if the battery falls below 25\%, i.e. measured voltage is $<$ 10.2V. Of course, measuring voltages around 12V will completely fry a 3.3V chip, whereas simply lowering the voltage in a voltage divider will cause the applicable voltage range to be very small (2.5V - 3.3V). \\
+
+Instead, the nature of electricity flow in the robot is used. The L298N H-bridge draws power from the batteries at their current varying voltage, but always outputs 5V to the veroboard circuit. By taking the scaled voltage difference between battery voltage and the 5V from the H-bridge in a differential amplifier, the complete range of the battery can be estimated more accurately.
+
+\subsubsection{Vacuum pump}
+\label{sec:vacuum}
+
+\subsection{Software Design and Implementation}
+
+\subsubsection{Peripheral drivers}
+\label{sec:periph}
+
+\subsubsection{Positioning and Sensor Fusion}
+\label{sec:position}
+
+\subsubsection{Mapping}
+\label{sec:mapping}
+
+\subsubsection{Motor Control}
+\label{sec:control}
+
+\subsubsection{Navigation}
+\label{sec:navigation}
+
+
+
+\subsubsection{Cleaning integration}
+\label{sec:cleaning}
+
+\subsection{Visual and statistical analysis}
+\label{sec:stats}
+
+\newpage
+
+%% End of File.
+
+%%
+%%  Department of Electrical, Electronic and Computer Engineering.
+%%  EPR400/2 Final Report - Section 3.
+%%  Copyright (C) 2011-2021 University of Pretoria.
+%%
+
+\section{Design and implementation}
+
+\subsection{Design summary}
+
+This section summarises the project design tasks and how they were implemented (see table \ref{tab:design_sum}).
+
+\begin{longtable}[H]{|p{0.28\textwidth}|p{0.4\textwidth}|p{0.28\textwidth}|} \hline
+    \textbf{Deliverable or task} & \textbf{Implementation} & \textbf{Completion of deliverable or task, and section in the report} \\ \hline
+    Determine sensor input requirements & 
+    It was determined that the system needs 3 ultrasonic sensors to perceive distance, 2 infrared sensors to detect fall hazards, and a 9-DOF IMU and 2 light odometers to calculate the vehicle's position &
+    Completed. Section \ref{sec:sensors} \\ \hline
+    Design the hardware layout on the robot's motherboard &
+    The original PCB design was replaced with a veroboard, which was iteratively optimized through first principles to design and build a small and efficient board & 
+    Completed. Section \ref{sec:veroboard} \\ \hline
+    Design and construct robot body &
+    The robot chassis, motors, wheels, vacuum pump, board and sensors were integrated together in a small autonomous vehicle. & 
+    Completed. Section \ref{sec:robot} \\ \hline
+    Design and construct vacuum pump &
+    The vacuum pump itself is an off-the-shelf hand vacuum, but the integration with the system, including current limiting breakout circuit was designed to control its operation during cleaning. &
+    Completed. Section \ref{sec:vacuum}. \\ \hline
+    Initialize and test peripherals &
+    Peripheral drivers were developed from first principles for the PIC32 microcontroller, for the most efficient implementation and lowest possible latency. &
+    Completed. Section \ref{sec:periph} \\ \hline
+    Design and implement positioning algorithm &
+    A positioning algorithm was implemented from first principles using complementary sensor fusion to position the robot on an internal 2D cartesian map. &
+    Completed. Section \ref{sec:position} \\ \hline
+    Design and implement navigation algorithm &
+    A navigation algorithm was implemented from first principles using ultrasonic proximity detection to reach specific goals and avoid obstacles, as well as control movement intelligently. &
+    Completed. Section \ref{sec:navigation} \\ \hline
+    Design and implement mapping algorithm &
+    A mapping algorithm was implemented from first principles to store visited and obstacle information from the environment to plan routes more effectively. &
+    Completed. Section \ref{sec:mapping} \\ \hline
+    Implement fall-protection algorithm &
+    A simple maneuver to avoid large was developed with mixed success and will not be demoed extensively for the vehicle's safety. &
+    Incomplete. \\ \hline
+    Implement dirt-detection algorithm &
+    The proposed dirt detection solution would have been too complex to incorporate into the system design, without adding any real value, and thus a design choice was taken to not implement this aspect of the system. &
+    Incomplete. \\ \hline
+    Implement autonomous power management algorithm & 
+    An power management algorithm was implemented so that the robot returns to its starting position once it detects low power, but the docking station and mechanics of docking precisely was not implemented. &
+    Incomplete. \\ \hline
+    Integrate in floor-cleaning system &
+    The integration of the positioning, navigation and mapping algorithms cleans a given floor area. &
+    Completed. Section \ref{sec:cleaning} \\ \hline
+    Test and verify results &
+    A range of simulations and experiments were carried out to verify that the robot fulfills the specified requirements, including Python simulations, visual inspection and offline statistical analysis of positioning and navigation data. &
+    Completed. Sections \ref{sec:sim} \& \ref{sec:stats} \\ \hline
+    \caption{Design summary}
+    \label{tab:design_sum}
+\end{longtable}
+
+\subsection{Theoretical background}
+\label{sec:theory}
+
+The mathematical structure of the robot's intelligent interaction with the environment can be divided into 5 subsystems: localization, mapping, control, path planning and navigation, working together to sense and perceive the environment, plan a goal and act to attain the goal.
+
+\subsubsection{Localization}
+\label{sec:localize}
+
+\textbf{Filter motivation}
+
+It is important for the robot to localize itself accurately in its internal representation of the world, as the success of the mapping and collision-free navigation depends on this. Localization is performing through the non-linear sensor fusion of the IMU's measured acceleration and gravity, as well as the measured wheel velocity from the odometers. A design choice was taken not to implement a SLAM algorithm, as multiple localize-only sensors are available to correct for noise and drift, and the sensors used for mapping, the sonar sensors, are quite inaccurate and do not produce a high quality map of the environment, which would make it difficult to use the mapping data successfully in localization. 
+
+Instead a double Unscented Kalman Filter (UKF) is implemented complementing the nature of the sensors and their operation. The IMU can provide a quick succession of angular rate and acceleration values, and due to the transient nature of acceleration, these readings are also most accurate if obtained as continuously as possible. On the other the odometer needs time to measure the rotation of trotation of the wheel, and preemptively extrapolating the wheel spin leads to inaccuracies. 
+
+Combining the strenghts and understanding the shortfalls of the two sensors, we propose a double UKF localization solution. The first filter, known as the "fast" filter, operates at 40 Hz, with its velocity estimate as the process model and incoming IMU data as the measurement model. The second "slow" filter operates at 4 Hz, using the last fast filter estimate as the process model and the incoming odometer readings as the slow filter. The double UKF data flow model is shown in Figure \ref{fig:dukf}.
+
+\begin{figure}
+    \centering
+    \includegraphics[width=0.9\textwidth]{figures/dukf.png}
+    \caption{Double UKF data flow model}
+    \label{fig:dukf}
+\end{figure}
+
+Every real world system deals with uncertainty in its processes and measurement data, which makes it difficult to accurately estimate a system's state, i.e. the important variables that describe a system in the world. Kalman filters solve the uncertainty problem with statistical probability representations of its state. Assuming that a state's uncertainty is approximately normally distributed, the essence of the state's expected values can be described by only keeping track of its mean and covariance. The Kalman filter updates the mean and covariance of the state over time using a dynamic Bayesian filter. Not only that, but if the process and measurement models are linear, the Kalman filter is the least squares approximator of the system, leading to optimal estimations of the state. 
+
+In reality most systems are non-linear, and thus the standard Kalman filter has to be expanded to deal with process or measurement non-linearities. Two common approaches are model linearization, also known as the Extended Kalman filter (EKF), and the unscented transformation of specific state estimates, also known as the Unscented Kalman filter (UKF). This paper implements a UKF to solve sytem dynamics, as it is generally more accurate, but also because the UKF is well suited to the nature of the problem. The localization problem is framed in such a way to require two semi-independent filters, one fast and one slow. Yet the data should still be comparable between the models. By creating the sigma points in the slow filter and updating the systems belief based on those sigma points in the fast filter, the slow filter will have access to both the original data from the previous iteration and the update estimate from the fast filter. This simplifies the design process and enables the UKF to work correctly.
+
+\textbf{UKF theory}
+
+A UKF filters data by creating a set of sigma points from the state, which are processed to obtain an estimate of the current state of the system. This is statistically combined with an estimate from the measurement data to produce a new state estimate. The sigma points are used to reconstruct the distribution of the state after the non-linear transform, and thus each point is offset from the mean by a specific amount. The deviation, also known as weights $W$ are obtained by the Cholesky decomposition of the covariance $P$ with noise $Q$ of the state $x$. 
+
+The Cholesky decomposition is effectively the square root of a matrix, and determines $L$, where $A=L^TL, L=\sqrt{A}$. Each position $(i,j)$ of $L$ can be calculated as
+
+\begin{align}
+    L_{ij} &= \left\{ \begin{array}{ll}
+        \sqrt{A_{ij} - \sum_{k=0}^{j-1} L_{jk}^2} & \text{if } i = j \\
+        \dfrac{1}{L_{jj}} \sqrt{A_{ij} - \sum_{k=0}^{j-1} L_{jk}^2} & \text{otherwise }
+    \end{array}
+    \right.
+\end{align}
+
+The set of sigma points $\{X_i\}$ are obtained as
+
+\begin{align}
+    W_i &= \text{columns}(\sqrt{2n \cdot (P_{k-1}+ Q}) & i &= 1...n \\
+    W_{i+n} &= \text{columns}(-\sqrt{2n \cdot (P_{k-1}+ Q})  & i &= n+1...2n\\
+    X_i &= \hat{x}_{k-1} + W_i & \text{i = $1$...$2n$}
+\end{align}
+
+where $n$ is the dimensionality of the state vector. The sigma are transformed through the non-linear process model $A(x, q)$ to obtain the processed points $\{Y_i\}$, as well as the measurement model $H(x, r)$, to obtain the measured points $\{Z_i\}$. The noise variables $q$ and $r$ are set to zero, as noise has already been added into the points as $Q$.
+
+\begin{align}
+    Y_i &= A(X_i, 0) \\
+    Z_i &= H(X_i, 0) 
+\end{align}
+
+The mean and covariance of $\{Y_i\}$ and $\{Z_i\}$ are calculated as the weighted sum and correlation of the sets. The measurement noise $R$ is added to the measured covariance $P_{zz}$.
+
+\begin{align}
+    x_k^{-} &= \sum_{i=0}^{2n}W_i^{(m)} Y_i & z_k^{-} &= \sum_{i=0}^{2n}W_i^{(m)} Z_i \\
+    P_k^{-} &= \sum_{i=0}^{2n}W_i^{(c)} \{Y_i - x_k^{-}\}\{Y_i - x_k^{-}\}^T & P_{zz,k} &= \sum_{i=0}^{2n}W_i^{(c)} \{Z_i - z_k^{-}\}\{Z_i - z_k^{-}\}^T \\
+    & & P_{vv} &= P_{zz} + R
+\end{align}
+
+The Kalman gain $K_k$ represents the weighted degree of confidence the system has in the process and measurement models respectively, and is calculated with the cross-correlation of $\{Y_i\}$ and $\{Z_i\}$, $P_{xz}$, which aids in understanding how the process and measurement data influence each other.
+
+\begin{align}
+    P_{xz} &= \sum_{i=0}^{2n}W_i^{(c)} \{Y_i - x_k^{-}\}\{Z_i - z_k^{-}\}^T \\
+    K_k &= P_{xz} P_{vv}^{-1}
+\end{align}
+
+Finally the mean and covariance of the system can be updated as the Kalman weighted sum of the process and measurement estimate.
+
+\begin{align}
+    x_k &= x_k^{-} + K_k (z - z_k^{-}) \\
+    P_k &= P_k^{-} - K_k P_vv K_k^T
+\end{align}
+
+\textbf{Fast UKF Process model}
+
+\textbf{Slow UKF Process Model}
+
+\subsubsection{Mapping}
+\label{sec:mapping}
+
+Localization by itself does not present the robot with enough information to act intelligently. The robot should have an idea about how the environment looks and works, not necessarily in extreme detail, but at least clear enough so that the robot can plan paths to specific goals and prevent collisions with obstacles in the environment. The robot needs a map, either as a point-based representation of obstacles or as a planar grid map describing the occupancy of each position.
+
+The latter representation is known as an occupancy grid map, a two dimensional grid of cells, where each cell has a value between 0 (free) and 1 (occupied). Even though the graph represents binary occupancy, i.e. it assumes that each cell is either completely free or completely occupied, a cell's value will typical be a decimal value between the two extremes. This is necessary to account for the uncertainties in the sensor readings perceiving the environment. Sonar range technology as employed in this project can be quite inaccurate and is prone to outlier vulnerabilities. By storing the probability that a cell is occupied rather than just a zero or one, the system is more flexible to deal with uncertainties by updating the map based on recurrent consensus of the occupancy of a cell over time. The probabilistic representation of the map is also desirable as it can be processed with Bayesian filtering. 
+
+Mapping large areas can quickly become large, complex problems. Therefore, to simplify the problem, we assume three things about the nature of the world and the map. First, it is assumed that every cell is either completely occupied or completely free, which is known as the occupancy assumption. Secondly, it is assumed that the world is static, no dynamic object except for the robot traverses the state space, which is known as the static assumption. Thirdly it is assumed that each cell is independent of one another, which is known as the independence assumption. It is clear that these assumptions do not always hold, a person can easily walk through the mapped area and it is quite reasonable to believe that some cells are partially covered or that the presence of an obstacle in one cell affects the probability of an obstacle in the next one. Fortunately the inaccuracies introduced by these assumptions are usually negligible, while the incorporation of these assumptions into the model produces a vastly simplified problem to solve.
+
+\textbf{Static Binary Bayes Filter}
+
+Given sensor data $z_{1:t}=\{z_1,z_2,...,z_t\}$ and input controls $u_{1:t}=\{u_1,u_2,...,u_t\}$, the objective of the mapping algorithm is to calculate the most likely map $m*$, where $m*$ is the maximum likelihood estimate of map given the input data:
+
+\begin{align}
+    m* &= \text{argmax}_m p(m|z_{1:t}, x_{1:t})
+\end{align}
+
+using the independence assumption $p(m_j|m_i) = p(m_j)$ for cells $i$ and $j$ in the map, the problem reduces to a joint probability or product of the individual cells, which can be expressed using Bayes rule,
+
+\begin{align}
+    p(m|z_{1:t},x_{1:t}) &= \prod_i p(m_i|z_{1:t},x_{1:t}) \\
+    p(m_i|z_{1:t},x_{1:t}) &= \dfrac{p(z_t|m_i,z_{1:t-1},x_{1:t}) p(m_i|z_{1:t-1},x_{1:t})}{p(z_t|z_{1:t-1},x_{1:t})}
+    \label{eq:bayes_rule}
+\end{align}
+
+which describes the probability that a cell is occupied given sensor data proportional to the probability of the sensor data given that the cell is occupied. A useful property of Bayesian network is the Markov assumption, which states that the future state of the system is conditionally independent of past states, given the current state. Thus, equation \ref{eq:bayes_rule} can be simplified by removing all past sensor data, $z_{1:t-1}$, given current data $z_t$ and by disregarding future input controls, $x_t$, given the current map $m_i$.
+
+\begin{align}
+    p(m_i|z_{1:t},x_{1:t}) &= \dfrac{p(z_t|m_i,x_t) p(m_i|z_{1:t-1},x_{1:t-1 })}{p(z_t|z_{1:t-1},x_{1:t})}
+\end{align}
+
+Bayes rule can be applied once again to the first term in the numerator, and multiplied back into the equation
+ 
+\begin{align}
+    p(z_t|m_i,x_t) &= \dfrac{p(m_i|z_t,x_t)p(z_t|x_t)}{p(m_i|x_t)} \\
+    p(m_i|z_{1:t},x_{1:t}) &= \dfrac{p(m_i|z_t,x_t)p(z_t|x_t) p(m_i|z_{1:t-1},x_{1:t-1 })}{p(m_i|x_t)p(z_t|z_{1:t-1},x_{1:t})}
+\end{align}
+
+A few terms in this equation are difficult to estimate, such as $p(z_t|x_t)$, which estimates the probability of a sensor given a position with no mapping information, and $p(m_i|x_t)$, which estimates the probability of a cell's occupancy given a position without sensor data. The second term can be simplified by assuming the map is independent of a robot's position in the absence of sensor data, $p(m_i|x_t) = p(m_i)$, which represents the prior probability that any cell in a map is occupied. This prior would be high in a thickly crowded environment and low in an area with large open spaces.
+
+As the occupancy grid map represents binary data, i.e. each cell is either occupied or free, the Bayesian filter for the opposite event is valid, and thus the ratio of the two probabilities can be expressed and simplified as:
+
+\begin{align}
+    p(\neg m_i|z_{1:t},x_{1:t}) &= \dfrac{p(\neg m_i|z_t,x_t)p(z_t|x_t) p(\neg m_i|z_{1:t-1},x_{1:t-1 })}{p(\neg m_i)p(z_t|z_{1:t-1},x_{1:t})} \\
+    \dfrac{p(m_i|z_{1:t},x_{1:t})}{p(\neg m_i|z_{1:t},x_{1:t})} &= \dfrac{\dfrac{p(m_i|z_t,x_t)p(z_t|x_t)     p(m_i|z_{1:t-1},x_{1:t-1 })}{p(m_i)p(z_t|z_{1:t-1},x_{1:t})}}{\dfrac{p(\neg m_i|z_t,x_t)p(z_t|x_t) p(\neg m_i|z_{1:t-1},x_{1:t-1 })}{p(\neg m_i)p(z_t|z_{1:t-1},x_{1:t})}} \\
+    &= \dfrac{p(m_i|z_t,x_t) p(m_i|z_{1:t-1},x_{1:t-1})p(\neg m_i)}{p(\neg m_i|z_t,x_t) p(\neg m_i|z_{1:t-1},x_{1:t-1}p(m_i)}
+\end{align}
+
+The occupancy assumption simplifies $p(\neg m_i) = 1 - p(m_i)$ as
+
+\begin{align}
+    \dfrac{p(m_i|z_{1:t},x_{1:t})}{1 - p(m_i|z_{1:t},x_{1:t})} &= \dfrac{p(m_i|z_t,x_t)}{1 - p(m_i|z_t,x_t)} \dfrac{p(m_i|z_{1:t-1},x_{1:t-1})}{1 - p(m_i|z_{1:t-1},x_{1:t-1})} \dfrac{(1 - p(m_i)}{p(m_i)}
+    \label{eq:map_ratio_bayes}
+\end{align}
+
+From Equation \ref{eq:map_ratio_bayes} it is evident that the system consists of three parts. The $p(m_i|z_t,x_t)$ term describes the influence of the current sensor observation $z_t$, the $p(m_i|z_{1:t-1},x_{1:t-1})$ term describes the influence of the estimate from the previous state of the cell, and the $p(m_i)$ term describes the influence of the a priori information of the map, independent of sensor measurements.
+ 
+Equation \ref{eq:map_ratio_bayes} currently describes the odds ratio $Odds(x) = \dfrac{p(x)}{1 - p(x)}$ of the probability. Using simple algebra the probability $p(x)$ can be recovered.
+
+\begin{align}
+    Odds(x) &= \dfrac{p(x)}{1 - p(x)} \\
+    p(x) &= Odds(x) - Odds(x) p(x) \\
+    p(x)(1 + Odds(x)) &= Odds(x) \\
+    p(x) &= \dfrac{Odds(x)}{1 + Odds(x)} = \dfrac{1}{1 + \dfrac{1}{Odds(x)}}
+\end{align}
+
+which finally leads to the equation for $p(m_i|z_{1:t},x_{1:t})$,
+
+\begin{align}
+    p(x) &= [1 + Odds(x)^{-1}]^{-1} \\
+    p(m_i|z_{1:t},x_{1:t}) &= \left[1 + \dfrac{1 - p(m_i|z_t,x_t)}{p(m_i|z_t,x_t)} \dfrac{1 - p(m_i|z_{1:t-1})}{p(m_i|z_{1:t-1},x_{1:t-1}),x_{1:t-1})} \dfrac{p(m_i)}{(1 - p(m_i)}\right]^{-1}
+\end{align}
+
+\textbf{Log-Odds Notation}
+
+However, applying the latter equation to every cell in a grid map can quickly become computationally expensive, and given that the mapping algorithm has to coexists with other algorithms on a resource constrained microcontroller, it is imperative to optimize the algorithm even further.
+
+First, let us define the log-odds of the probability of $x$ and its inverse as
+
+\begin{align}
+    l(x) &= \log \dfrac{p(x)}{1 - p(x)} & p(x) &= 1 - \dfrac{1}{1 + e^{l(x)}}
+\end{align}
+
+representing the map in log-odds space reduces the mapping equation to
+
+\begin{align}
+    l(m_i|z_{1:t},x_{1:t}) &= l(m_i|z_t, x_t) + l(m_i|z_{1:t-1}, x_{1:t-1}) - l(m_i) \\
+    l_{t,i} &= h(m_i, x_t, z_t) + l_{t-1,i} - l_0
+    \label{eq:logodds_recur}
+\end{align}
+
+where $h(x)$ is the measurement model that relates a new measurement to a log-odds probability. Equation \ref{eq:logodds_recur} clearly shows the recursive nature of the algorithm, as each update step just involves an addition of the new sensor data probability and a subtraction of the prior probability. Updating a log-odds map is fast, efficient and even allows parallelism, as none of the map cells are dependent on one another.
+
+\textbf{Measurement model}
+
+The map algorithm only updates the cells that are currently in the field of view of the sonar sensors, which emits a sonar signal in the form characterized in Figure \ref{fig:sonar_grid}.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.7\textwidth]{figures/sonar_grid.png}
+    \caption{Map grid cells in field of view of sonar sensor. Courtesy Burgard \cite{burgard_mr}.}
+    \label{fig:sonar_grid}
+\end{figure}
+
+A few properties of the sensor is apparanet from Figure \ref{fig:sonar_grid}. Firstly, the sonar does not emit a directed beam in a specific direction, but has a deviation angle $\theta$ from which an emitted beam can be reflected back. Secondly, the sensor only detects the nearest object in its field of view (FOV), regardless of the view's width. This is can be shown by the arc of dark cells at the end of the beam, any of which can be the location of the real object. To deal with uncertainty in the measurement, a cell's modified probability depends on the cell's relative distance to the perceived obstacle and its deviation from the center of the sensor's orientation.
+
+\begin{figure}
+    \centering
+    \includegraphics[width=0.8\textwidth]{figures/sonar_dist_p.png}
+    \caption{Distance dependent probability update. Courtesy Burgard \cite{burgard_mr}.}
+    \label{fig:sonar_dist_p}
+\end{figure}
+
+Figure \ref{fig:sonar_dist_p} describes the occupancy confidence of cells in the FOV, based on on where they are on the sensor distance line. The sensor confidence can be expressed in terms of constants $d_1, d_2, d_3$, which estimate the sensor noise and general thickness of obstacles. Cells that lay between $x_t$ and $z_t-d_1$ are perceived to be unoccupied, and will have a low probability, cells between $z_t-d_1$ and $z_t+d_1$ gradually increase in occupancy confidence as the measured distance approaches. Cells between $z_t+d_1$ and $z_t+d_2$ are regarded as obstructed, even with noise in the sensor it is reasonable to assume an obstruction $d_1$ further from the reading. Finally cells between $z_t+d_2$ and $z_t+d_3$ technically behind the sensed obstacle and thus no information about their occupancy is available. The same is true for cells beyond $z+d_3$. This can be evaluated in a piecewise function as
+
+\begin{align}
+    d &= \sqrt{(m_{i,x} - x_{t,x})^2 + (m_{i,y} - x_{t,y})^2} \\
+    p(m_i) &= \left\{ \begin{array}{ll}
+        p_{LOW} & d \leq z_t + d_1 \\
+        p_{LOW} + \dfrac{p_{HIGH} - p_{LOW}}{2d_1} (d - z_t - d_1) & z_t-d_1 < d \leq z_t+d_1  \\
+        p_{HIGH} & z_t+d_1 < d \leq z_t+d_2 \\
+        p_{HIGH} - \dfrac{p_{HIGH} - p_0}{d_3 - d_2} (d - z_t+d_3) & z_t+d_2 < d \leq z_t+d_3 \\
+        p_0 & d > z_t + d_3
+    \end{array}
+    \right.
+\end{align}
+
+\begin{figure}
+    \centering
+    \includegraphics[width=0.7\textwidth]{figures/sonar_angle_p.png}
+    \caption{Angle dependent probability update. Courtesy Burgard \cite{burgard_mr}.}
+    \label{fig:sonar_angle_p}
+\end{figure}
+
+Figure \ref{fig:sonar_angle_p} shows a cell that is deviated from the center of the sonar's FOV by $\theta$. Assuming that sensor readings at a deviated angle will be less accurate and more prone to errors, it is wise to multiply the proposed confidence with a Gaussian distributed weight around the deviation $\theta$. The probability density function $f(x)$ of a normally distributed set equates to
+
+\begin{align}
+    f(x) &= \dfrac{1}{\sigma\sqrt{2\pi}} e^{-\dfrac{(x - \mu)^2}{2\sigma^2}}
+\end{align}
+
+with standard deviation $\sigma$ and mean $\mu = 0$, which can be used to calculate the Gaussian weight $s_\theta$ as
+
+\begin{align}
+    s_\theta &= \left\{ \begin{array}{ll}
+        \dfrac{1}{\sigma\sqrt{2\pi}} e^{-\dfrac{\theta^2}{2\sigma^2}} & \theta \leq 0 \\
+        \dfrac{1}{\sigma\sqrt{2\pi}} e^{-\dfrac{(1 - \theta)^2}{2\sigma^2}} & \theta > 0
+    \end{array}
+    \right.
+\end{align}
+
+Finally the measurement model can be expressed as
+
+\begin{align}
+    h(m_i, x_t, z_t) &= \log \dfrac{s_\theta p(m_i)}{1 - s_\theta p(m_i)}
+\end{align}
+
+Modern approaches tend to integrate the localization and mapping problems in one of several SLAM algorithms. This approach was not pursued intentionally as those algorithms require a lot of computational power and quite accurate distance readings. The proposed system has neither, working with a low-end microcontroller and low quality sonar sensors, but rather maps the world with known poses, thus it assumes localization is fairly accurate. The focus now shifts from a highly complex simultaneous optimization problem to ensuring accurate positioning, which is done through the incorporation of three different sensors in a sophisticated UKF for precise state estimation.
+
+\subsubsection{Control}
+\label{sec:control}
+
+The passive aspects of the system have been dealt with, and the robot can effectively estimate its position and perceive the environment, but so far it is unable to plan paths nor act on those plans. In this section we assume a path has already been determined, and investigate the methods the robot employs to reach this goal accurately and timely.
+
+The simplest control model aims to reach a desired state $x'$ from its current state $x$ by sending a set of controls $u$ to its actuators, producing state $y$. This model does not incorporate any perceptual information about the environment and is an open loop controller. This model is vastly insufficient for any system operating in the real world, as it does not account for noise, faulty actuators or dynamic unexpected events. A better model also incorporates sensor data to update the estimate of its state in what is known as a closed loop feedback controller.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{figures/open_loop.png}
+    \caption{Open loop vs. closed loop controller}
+    \label{fig:open_loop}
+\end{figure}
+
+A closed loop controller continually uses sensor data to update the error, $e$, between the desired and current states. The data flow model for a closed loop controller is given in Figure \ref{fig:closed_loop}, showing the interaction between the desired state $x_t'$, the current state $x_t$, the measured state $z_t$ and the input controls $u_t$. Process nosie $\epsilon_t$ and measurement noise $\delta_t$ also affect the system. The controller's objective is to relate the error between the desired and current state to the required input controls that will eventually result in the robot reaching the goal.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{figures/closed_loop.png}
+    \caption{Closed loop controller data flow model}
+    \label{fig:closed_loop}
+\end{figure}
+
+\textbf{PID controller theory}
+
+Let us first examine a generic feedback controller with the above-mentioned parameters. The simplest controller would set the input proportional to the error,
+
+\begin{align}
+    u_t &= K_p (x' - x_t) \\
+    &= K_p e_t, K_p < 1
+    \label{eq:p-control}
+\end{align}
+
+where $K_p$ is the proportionality constant. Limiting $K_p$ to be less than one ensures that the system produces an input smaller than its perceived error, leading to a stable system response. On the other hand, if $K_p > 1$ the system would produce input larger than the error, which can lead to positive feedback and instability. 
+
+The controller in Equation \ref{eq:p-control} works theoretically, but three physical phenomenon can degrade the quality of the system response. Firstly, the system is susceptible to noise, both in the actuators and in the sensors, which can lead to oscillations around the desired goal state, second a delay between the system's response and its perception of the reponse can lead to overcompensation for an action that has already been adjusted for, but due to inertia or sensor characteristics the effect is not seen yet. Thirdly, in the case where the system controls for the rate of change of a particular variable, such as the velocity of the robot's position, just reaching the desired position is not sufficient, as the system's velocity will cause it to overshoot. Rather the system should act in a manner to compensate for both its state and the rate of change of the state, to reach the goal state and remain there.
+
+Noise and delay can be reduced by setting a lower value of $K_p$, but it can lead to a slower convergence rate. This is effectively a trade-off between fast convergence and low steady-state error, depending on the design requirements. In the latter case the system can be modelled more accurately according to Equation \ref{eq:pd-model}, accounting for both its state and its rate of change or derivative. This will ensure that the input is not only dependent on the magnitude of the error, but also the rate at which we are reducing the error, to ensure low oscillatory behaviour in the vicinity of the goal. As a bonus, the introduction of a derivative term facilitates the use of a larger stable proportional constant, leading to faster convergence.
+
+\begin{align}
+    x_t &= x_{t-1} + \Dot{x}\Delta t
+    \label{eq:pd-model} \\
+    u_t &= K_p (x' - x_t) + K_d (\Dot{x}' - \Dot{x}_t) \\
+    u_t &= K_p e_t + K_d \dfrac{de_t}{dt}
+\end{align}
+
+A final modification can be made to the controller by considering the problem of steady state errors. These are small errors in the state when in the vicinity of the goal that accumulate over time to take the system off course. This is, for example, applicable if the desired state is a certain velocity to reach a faraway target, but due to a small deviation the target is not reached. Steady state errors are usually small enough that the proportional controller do not correct for them, or at least cannot do so effectively, as it is designed to deal with large inaccuracies. The solution is to correct for the integral of the error over time as part of the controller.
+
+\begin{align}
+    u_t &= K_p (x' - x_t) + K_d (\Dot{x}' - \Dot{x}_t) + K_i \int_0^t (x' - x_t) dt \\
+    u_t &= K_p e_t + K_d \dfrac{de_t}{dt} + K_i \int_t e_t dt
+\end{align}
+
+The introduction of the integral term does however put the system in danger of the error build up, also known as the wind-up effect. If the robot does not act in the way it ought to, according to its model, which can happen if it is for example stuck in a hole. The integral error will continue to increase dramatically and completely disrupt the system once the robot comes out of the hole. The solution is to only integrate the error over fixed periods of time instead of over all possible time, which will at least contain the integral error to an upper manageable limit.
+
+\textbf{Motor control}
+
+With the theoretical foundation laid, we can proceed to the mathematical models of the motor and position controllers. The motor controller restricts its operation to the performance and expectation of the motors, and aims to reduce the error between the real and desired translational and rotational velocities $(v,\omega)$. This controller not only assumes that the desired position is known, but also that the position controller, described below, established the required velocities $(v,\omega)$ to reach the goal. The motivation for the separation of the two systems is that it produces a two modular, independent software components that can function semi-independent of one another, which eases development, debugging and maintenance. For the motor controller this allows a simplistic and focused model, and for the position controller this abstracts away the physical implementation of the velocities, once again simplifying and focusing its model.
+
+The motor controller has state $\mathbf{x} = \{v, \omega\}$, where $v$ describes the forward velocity and $\omega$ the angular velocity of the robot. The desired state is of the same form $\mathbf{x}' = \{v', \omega'\}$. The input controls are the duty cycles that drive the PWM of the left and right motors, $\mathbf{u} = \{v_l, v_r\}$, and must have a value between -1 and 1. The sensors are the light-based odometers attached to the shafts of each wheel, which record the amount of holes $n$ in a wheel encoder that passes by in a specific time frame $\Delta t$. This is easily converted angular velocity of the wheel, $\omega_i$, and forward velocity, $v_i$, as
+
+\begin{align}
+    v_i &= r\omega_i = \dfrac{2 \pi r n}{N} \\
+\end{align}
+
+with $N$ the total amount of holes in the encoder and $r$ the radius of the wheels. The motor controller implements a simple proportional controller in as Equation \ref{eq:p-control-motor}.
+
+\begin{align}
+    \begin{bmatrix} v_r \\ v_l \end{bmatrix} &= K_p \begin{bmatrix}
+        1 & K_\omega \\
+        1 & -K_\omega
+    \end{bmatrix} \begin{bmatrix}
+        v' \\ \omega'
+    \end{bmatrix}
+    \label{eq:p-control-motor}
+\end{align}
+
+In essence the controller uses the translational velocity to set a velocity bar for both wheels, which is offset one way or another depending on the direction and magnitude of the desired angular velocity. 
+
+\textbf{Position control}
+
+The position controller aims to move the robot from its current position to its desired position by dynamically updating the required translational and angular velocities needed to get there. The controller has state $\mathbf{x} = \{x, y, \theta\}$, describing the current position and orientation of the robot in 2D state space, as well as desired state $\mathbf{x}'=\{x', y'\}$ as the goal and $\mathbf{u} = \{v, \omega\}$ as the input controls to the motor controller.
+
+The first step is to obtain the distance and angular offset error between the current and desired state, which effectively converts the error to polar form.
+
+\begin{align}
+    e_t &= f(\mathbf{x}' - \mathbf{x}) \\
+    \begin{bmatrix} e_r \\ e_\theta \end{bmatrix} &= \begin{bmatrix}
+        \sqrt{(x' - x)^2 + (y' - y)^2} \\
+        \text{atan2}(y' - y, x' - x) - \theta
+    \end{bmatrix}
+\end{align}
+
+the C function \texttt{atan2()} is used as it respect the sign of the angle. Using the previous error states $e_{1:t-1}$, the integral and derivative terms can be calculated as
+
+\begin{align}
+    \int_0^t e_t d_t &= \sum_{i=0}^t e_i \Delta t = \sum_{i=0}^{t-1} e_i \Delta t + e_t \Delta t \\
+    \dfrac{de_t}{dt} &= \dfrac{e_t - e_{t-1}}{\Delta t}
+\end{align}
+
+where the $\sum_{i=0}^{t-1} e_i \Delta t$ is the sum of all previous errors up to $e_{t-1}$ and is updated recursively. Finally the PID-controller can be implemented as
+
+\begin{align}
+    u_t &= K_p e_t + K_i \int_0^t e_t dt + K_d \dfrac{de_t}{dt} \\
+    u_{t,v} &= K_{p,v} e_{t,r} + K_{i,v} \int_0^t e_{t,r} dt + K_{d,v} \dfrac{de_{t,r}}{dt} \\
+    u_{t,\omega} &= K_{p,\omega} e_{t,\theta} + K_{i,\omega} \int_0^t e_{t,\theta} dt + K_{d,\omega} \dfrac{de_{t,\theta}}{dt}
+\end{align}
+
+There exists a inverse relationship between required velocity and estimated distance, thus to make sure velocity decreases with approaching speed, as well as to confine the suitable velocities to the hardware constraints of the system, the input controls are propagated through the following equation before being used in the motor control.
+
+\begin{align}
+	u_{t,v}' &= \dfrac{K_c u_{t,v}}{K_a + u_{t,v}}
+\end{align}
+
+where $K_c$ represents the hardware defined upper velocity limit, and $K_a$ is a modifier describing how the velocity should taper off as the robot approaches the goal position.
+
+\subsubsection{Path planning}
+\label{sec:path-plan}
+
+\subsubsection{Navigation}
+\label{sec:navigation}
+
+\subsection{Simulations}
+\label{sec:sim}
+
+\subsection{Hardware Design and Implementation}
+
+\subsubsection{Sensors}
+\label{sec:sensors}
+
+The autonomous vacuum cleaner has to interact with the environment in an intelligent manner, having knowledge of the landscape as well as its own observed actions. Thus, choosing the sensor components that will give real-time measurement input to the system is an integral first step in the journey towards robotic perception. The required input data aims to update the robot's perception of reality primarily in two ways: input that tells the robot about the environment, and input that observes the robot's actions. \\
+
+The sensor input that describes the environment has to quantify the landscape by measuring the distance to obstacles in the horizontal plane close to the floor. Ideally the robot should be able to get a sense of the position of a measured obstacle relative to itself, thus both the distance to and the approximate direction of the obstacle is required. The potential sensor candidates include Lidar sensors, cameras, ultrasonic sensors and infrared scanners. \\
+
+After thorough research and requirements evaluation it became clear that HC-SR04 ultrasonic sensors are the most suitable candidate for the system. An ultrasonic sensor is a distance sensing device that contains a transmitter and a receiver used to emit and receive an ultrasonic pulse respectively. Transmission of a 40kHz signal pattern starts while an echo pin is simultaneously pulled high until the transmitted pulse is reflected back into the receiver module. Measuring the length of the travelling pulse, while assuming that the speed of sound is known and approximately constant, the distance to the nearest obstacle in the direction of the sensor can easily be determined. The sensor does however have a $30^\circ$ total angular range or field of view within which the closest object will be detected. This leads to uncertainty in the exact location of the obstacle, as any position in a arc around the sensor's view could produce a reading at the specific distance. Despite this challenge, which will be addressed later on, the ultrasonic sensor is still the best sensor for the job due to the little post-processing required to interpret its measurement data, its large measurement range (2cm - 4m), its ability to operate in low lighting conditions and its relatively low power consumption, which is important for a system that runs on batteries. \\
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.5\textwidth]{figures/hcsr04_waves.png}
+    \caption{HC-SR04 ultrasonic wave operation}
+    \label{fig:hcsr04_waves}
+\end{figure}
+
+The system implements three HC-SR04 sensors in a semi-circle around the front of the robot, placed at such an angle that the three sensors collectively scan a $120^\circ$ field of view directly ahead of the robot, with each sensor placed offset by $40^\circ$ relative to one another. The $10^\circ$ blind spot produced by this design is small enough that it is highly unlikely that an obstruction can hide in there, without showing up in measurement readings on either side of the gap, especially across different samples taken at different locations. \\
+
+A glaring limitation prohibits the use of higher resolution sensor components, such as cameras or lidar, which is the amount of processing power and more importantly, memory, required to effectively analyse incoming data. Computer vision algorithms are bulky and expensive, requiring tens of thousands of matrix operations and several levels of filtering, processing and AI-based sorting to work. These approaches are unfeasible for the simple, low-cost solution that this project aims to implement. Memory is a particularly constrained resource in an embedded system, with every single byte of stored space important. An array of photos in different processing stages taking up a few megabytes of storages is simply not an option. \\
+
+The second set of sensors address the potential non-determinism in the robot's expected actions. The robot navigates the world by setting the duty cycle of the motors turning the wheels. This action is quite simple, but prone to process noise. For example, if both motors receive the same PWM duty cycle, the expected outcome is forward propagation in a straight line, but due to differences in friction, magnetic field strength and physical construction, one of the motors inevitable turns a little bit faster than the other one, which slowly takes the robot off course until it finds itself in a completely different location and orientation than its internal map of the world expects it to be. \\
+
+The solution to actuator uncertainty involves an observation feedback loop coupled with a PI-controller, which will be explored in another section. The observation feedback loop observes properties of the robot that directly or indirectly provides information about the state of the device. These measurements are fused with the robots own estimation of its state to produce an updated state. Five sensor components are chosen for this task, a gyroscope, accelerometer and magnetometer combined in a 9-DOF IMU, as well as two odometers placed on the left and right wheels of the robot. Together these sensors can measure angular rate, velocity, acceleration and magnetic induction in three dimensions, potentially providing more than enough information to correct the robot's estimate of its state. \\
+
+As the robot only operates on a 2D plane, assuming that the robot will never fall of a cliff (not that accurate positioning will be of much use in that case in anyway), we can neglect measurement data in certain dimensions, such as the roll and pitch of the gyroscope and the gravitational tug in the vertical direction from the accelerometer. This simplifies the sensor fusion algorithms as we focus on the sensor data that have a real impact on the positioning of the robot. \\
+
+In summary, the gyroscope, accelerometer and magnetometer of the MPU9250 IMU sensor works in conjunction with two light emitting odometers attached to the wheels to accurate estimate the position of the robot in its internal map of the world. Unfortunately the accelerometer has to be placed on an exactly level plane to prohibit gravity from affecting the readings on the horizontal plane. The gyroscope is also infamous for large amounts of bias and bias instability, leading to wildly inaccurate readings. To overcome both of these problems, the robot stays in an initialization state for three seconds upon startup, during which at least 30 IMU sensor measurement are taken. As the robot is assumed to be stationary, any deviation from the expected values can be interpreted as bias. The average of the measured bias is subsequently subtracted from every measurement taken during navigation. This relaxes the requirement for a flat accelerometer and accurate gyroscope, and experimental results prove that this simple bias removal technic vastly improves the accuracy of the measurement model state estmation.
+
+\subsubsection{Veroboard}
+\label{sec:veroboard}
+
+The veroboard design initially started out as a desperate attempt to build a working prototype after several iterations of PCB boards failed to work. As veroboards are a lot easier to change, redo and improve, a design choice was taken to stick to veroboard prototyping. The veroboard is home to a small ecosystem of components, each playing their part in making the system work as a whole. \\
+
+The most important component on the board is the PIC32MX270F256-B microcontroller from Microchip, boasting a 40 MHz clock, 256kB of flash memory and 64kB of SRAM, as well as the MIPS32 RISC architecture. The chip has 28 pins, of which 17 can be used as general purpose input/output (GPIO) pins. With 14 peripheral devices, some requiring more than one pin, it seemed impossible to reconcile the large peripheral need with the low pin count. Fortunately, through a mixture of iteration, optimization and careful design, creative methods were developed to squeeze as much functionality out of the pins as possible. \\
+
+For example, originally the three ultrasonic distance sensors each had to be triggered by a separate trigger pin to start a distance reading, while the measurement occured on another separate echo pin. Thus 6 out of 28 pins were wasted on one aspect of the peripheral components. Then it was discovered that the same echo pin can be reused if the correct assortment of diodes and resistors are used to pull the line low between readings and to eliminate power loss on the shared bus. So now we are down to three trigger pins and one echo pin. Triggering all three pins at once will result in potential crosstalk between the sensors and should be avoided. Finally it was found that triggering a pin and listening to an echo has the same characteristic pulse on a line, thus if the echo pin of sensor 1 is connected to the trigger pin of sensor 2, a completed measurement on sensor 1 will automatically start transmission on sensor 2. This was the final breakthrough that allowed the system to dedicate only 2 pins to all three ultrasonic sensors, while simplifying the code necessary to operate these components. \\
+
+Another example is the sharing of the I$^2$C bus. The IMU, magnetometer and OLED display screen communicate via I$^2$C. Thus by connecting the three components to the same two wires can be used for SDA and SCL, using I$^2$C addressing to announce the recipient of a message. Lastly, further optimization took place by only dedicating one pin, TX to the UART, as it is assumed that the robot will not receive any data but will only be used to display information. \\
+
+\subsubsection{Robot body}
+\label{sec:robot} 
+
+\subsubsection{Power management}
+\label{sec:power}
+
+Part of the design requirements of the robot describes the need to autonomously manage the robot's power consumption, whereby it returns back to the docking station (or starting location) once it detects low battery capacity. The robot can detect remaining capacity by measuring the voltage over the batteries. A single 18650 battery is fully charged at 4.2V, nominal at 3.7V and flat at 3.2V. The system has three 18650 batteries in series, thus it will be fully charged at 12.6V and dead at 9.6V. We would ideally want to halt operation and return back to the charger if the battery falls below 25\%, i.e. measured voltage is $<$ 10.2V. Of course, measuring voltages around 12V will completely fry a 3.3V chip, whereas simply lowering the voltage in a voltage divider will cause the applicable voltage range to be very small (2.5V - 3.3V). \\
+
+Instead, the nature of electricity flow in the robot is used. The L298N H-bridge draws power from the batteries at their current varying voltage, but always outputs 5V to the veroboard circuit. By taking the scaled voltage difference between battery voltage and the 5V from the H-bridge in a differential amplifier, the complete range of the battery can be estimated more accurately.
+
+\subsubsection{Vacuum pump}
+\label{sec:vacuum}
+
+\subsection{Software Design and Implementation}
+
+\subsubsection{Peripheral drivers}
+\label{sec:periph}
+
+\subsubsection{Positioning and Sensor Fusion}
+\label{sec:position}
+
+\subsubsection{Mapping}
+\label{sec:mapping}
+
+\subsubsection{Motor Control}
+\label{sec:control}
+
+\subsubsection{Navigation}
+\label{sec:navigation}
+
+
+
+\subsubsection{Cleaning integration}
+\label{sec:cleaning}
+
+\subsection{Visual and statistical analysis}
+\label{sec:stats}
+
+\newpage
+
+%% End of File.
+

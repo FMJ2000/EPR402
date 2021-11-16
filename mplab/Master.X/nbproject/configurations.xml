@@ -11,6 +11,7 @@
       <itemPath>oled.h</itemPath>
       <itemPath>periph.h</itemPath>
       <itemPath>map.h</itemPath>
+      <itemPath>node.h</itemPath>
     </logicalFolder>
     <logicalFolder name="LinkerScript"
                    displayName="Linker Files"
@@ -26,6 +27,7 @@
       <itemPath>oled.c</itemPath>
       <itemPath>periph.c</itemPath>
       <itemPath>map.c</itemPath>
+      <itemPath>node.c</itemPath>
     </logicalFolder>
     <logicalFolder name="ExternalFiles"
                    displayName="Important Files"

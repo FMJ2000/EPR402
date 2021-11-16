@@ -87,7 +87,7 @@ void __ISR(_TIMER_1_VECTOR, IPL2SOFT) TMR1_IntHandler() {
 	bot->count++;
 	
 	Bot_Pos_IMU(bot);		// imu pos update @ 40 Hz
-	Bot_Control(bot);
+	Bot_Motor_Control(bot);
 	
 	if (bot->count % 10 == 0) {
 		Bot_Pos_Odo(bot);		// odo pos update @ 4 Hz

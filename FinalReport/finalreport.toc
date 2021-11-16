@@ -1,0 +1,85 @@
+\babel@toc {british}{}
+\contentsline {part}{Part 1. Preamble}{i}{}%
+\contentsline {part}{Part 2. Project definition: approved Project Proposal}{vii}{}%
+\contentsline {part}{Part 3. Main Report}{xvi}{}%
+\contentsline {section}{\numberline {1}Literature study}{1}{}%
+\contentsline {subsection}{\numberline {1.1}Positioning and Mapping}{1}{}%
+\contentsline {subsection}{\numberline {1.2}Navigation}{2}{}%
+\contentsline {subsection}{\numberline {1.3}Sensors}{4}{}%
+\contentsline {section}{\numberline {2}Approach}{6}{}%
+\contentsline {section}{\numberline {3}Design and implementation}{8}{}%
+\contentsline {subsection}{\numberline {3.1}Design summary}{8}{}%
+\contentsline {subsection}{\numberline {3.2}Theoretical background}{10}{}%
+\contentsline {subsubsection}{\numberline {3.2.1}Localization}{10}{}%
+\contentsline {subsubsection}{\numberline {3.2.2}Mapping}{13}{}%
+\contentsline {subsubsection}{\numberline {3.2.3}Control}{18}{}%
+\contentsline {subsubsection}{\numberline {3.2.4}Path planning}{23}{}%
+\contentsline {subsubsection}{\numberline {3.2.5}Navigation}{23}{}%
+\contentsline {subsection}{\numberline {3.3}Simulations}{23}{}%
+\contentsline {subsection}{\numberline {3.4}Hardware Design and Implementation}{23}{}%
+\contentsline {subsubsection}{\numberline {3.4.1}Sensors}{23}{}%
+\contentsline {subsubsection}{\numberline {3.4.2}Veroboard}{25}{}%
+\contentsline {subsubsection}{\numberline {3.4.3}Robot body}{26}{}%
+\contentsline {subsubsection}{\numberline {3.4.4}Power management}{26}{}%
+\contentsline {subsubsection}{\numberline {3.4.5}Vacuum pump}{27}{}%
+\contentsline {subsection}{\numberline {3.5}Software Design and Implementation}{27}{}%
+\contentsline {subsubsection}{\numberline {3.5.1}Peripheral drivers}{27}{}%
+\contentsline {subsubsection}{\numberline {3.5.2}Positioning and Sensor Fusion}{27}{}%
+\contentsline {subsubsection}{\numberline {3.5.3}Mapping}{27}{}%
+\contentsline {subsubsection}{\numberline {3.5.4}Motor Control}{27}{}%
+\contentsline {subsubsection}{\numberline {3.5.5}Navigation}{27}{}%
+\contentsline {subsubsection}{\numberline {3.5.6}Cleaning integration}{27}{}%
+\contentsline {subsection}{\numberline {3.6}Visual and statistical analysis}{27}{}%
+\contentsline {section}{\numberline {4}Design and implementation}{28}{}%
+\contentsline {subsection}{\numberline {4.1}Design summary}{28}{}%
+\contentsline {subsection}{\numberline {4.2}Theoretical background}{30}{}%
+\contentsline {subsubsection}{\numberline {4.2.1}Localization}{30}{}%
+\contentsline {subsubsection}{\numberline {4.2.2}Mapping}{33}{}%
+\contentsline {subsubsection}{\numberline {4.2.3}Control}{38}{}%
+\contentsline {subsubsection}{\numberline {4.2.4}Path planning}{43}{}%
+\contentsline {subsubsection}{\numberline {4.2.5}Navigation}{43}{}%
+\contentsline {subsection}{\numberline {4.3}Simulations}{43}{}%
+\contentsline {subsection}{\numberline {4.4}Hardware Design and Implementation}{43}{}%
+\contentsline {subsubsection}{\numberline {4.4.1}Sensors}{43}{}%
+\contentsline {subsubsection}{\numberline {4.4.2}Veroboard}{45}{}%
+\contentsline {subsubsection}{\numberline {4.4.3}Robot body}{46}{}%
+\contentsline {subsubsection}{\numberline {4.4.4}Power management}{46}{}%
+\contentsline {subsubsection}{\numberline {4.4.5}Vacuum pump}{47}{}%
+\contentsline {subsection}{\numberline {4.5}Software Design and Implementation}{47}{}%
+\contentsline {subsubsection}{\numberline {4.5.1}Peripheral drivers}{47}{}%
+\contentsline {subsubsection}{\numberline {4.5.2}Positioning and Sensor Fusion}{47}{}%
+\contentsline {subsubsection}{\numberline {4.5.3}Mapping}{47}{}%
+\contentsline {subsubsection}{\numberline {4.5.4}Motor Control}{47}{}%
+\contentsline {subsubsection}{\numberline {4.5.5}Navigation}{47}{}%
+\contentsline {subsubsection}{\numberline {4.5.6}Cleaning integration}{47}{}%
+\contentsline {subsection}{\numberline {4.6}Visual and statistical analysis}{47}{}%
+\contentsline {section}{\numberline {5}Results}{48}{}%
+\contentsline {subsection}{\numberline {5.1}Summary of results achieved}{48}{}%
+\contentsline {subsection}{\numberline {5.2}Qualification tests}{48}{}%
+\contentsline {section}{\numberline {6}Discussion}{49}{}%
+\contentsline {subsection}{\numberline {6.1}Interpretation of results}{49}{}%
+\contentsline {subsection}{\numberline {6.2}Critical evaluation of the design}{49}{}%
+\contentsline {subsection}{\numberline {6.3}Design ergonomics}{49}{}%
+\contentsline {subsection}{\numberline {6.4}Health, safety and environmental impact}{49}{}%
+\contentsline {subsection}{\numberline {6.5}Social and legal impact of the design}{49}{}%
+\contentsline {section}{\numberline {7}Conclusion}{50}{}%
+\contentsline {subsection}{\numberline {7.1}Summary of the work completed}{50}{}%
+\contentsline {subsection}{\numberline {7.2}Summary of the observations and findings}{50}{}%
+\contentsline {subsection}{\numberline {7.3}Contribution}{50}{}%
+\contentsline {subsection}{\numberline {7.4}Future work}{50}{}%
+\contentsline {part}{Part 4. Appendix: technical documentation}{51}{}%
+\contentsline {section}{HARDWARE part of the project}{52}{}%
+\contentsline {subsection}{Record 1. System block diagram}{52}{}%
+\contentsline {subsection}{Record 2. Systems level description of the design}{52}{}%
+\contentsline {subsection}{Record 3. Complete circuit diagrams and description}{52}{}%
+\contentsline {subsection}{Record 4. Hardware acceptance test procedure}{52}{}%
+\contentsline {subsection}{Record 5. User guide}{52}{}%
+\contentsline {section}{SOFTWARE part of the project}{52}{}%
+\contentsline {subsection}{Record 6. Software process flow diagrams}{52}{}%
+\contentsline {subsection}{Record 7. Explanation of software modules}{52}{}%
+\contentsline {subsection}{Record 8. Complete source code}{52}{}%
+\contentsline {subsection}{Record 9. Software acceptance test procedure}{52}{}%
+\contentsline {subsection}{Record 10. Software user guide}{52}{}%
+\contentsline {section}{EXPERIMENTAL DATA}{52}{}%
+\contentsline {subsection}{Record 11. Experimental data}{52}{}%
+\contentsfinish 

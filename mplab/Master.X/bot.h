@@ -53,6 +53,7 @@
 // path planning
 #define MAX_COL_COUNT 5
 #define NAV_STEP 0.24
+#define NAV_SQRT sqrt(2*NAV_STEP)
 
 // sensors
 #define SOUND_SPEED 1.65e-4              // TMR5*SOUND_SPEED for distance
@@ -142,11 +143,12 @@ void Bot_UKF_Mean(uint8_t rows, float result[rows], float X[UKF_T][rows]);
 void Bot_UKF_Cov(uint8_t rows, float result[rows][rows], float X[UKF_T][rows], float m[rows]);
 void Bot_UKF_Update(struct Bot * bot);
 
+void Bot_Motion_Model(float (*x)[5], float dt);
 void Bot_Motor_Control(struct Bot * bot);
 void Bot_Pos_Control(struct Bot * bot);
 void Bot_Navigate(struct Bot * bot);
 void Bot_Explore(struct Bot * bot);
-void Bot_Detect_Collision(struct Bot * bot);
+char Bot_Detect_Collision(struct Bot * bot);
 
 void Bot_Display_Status(struct Bot * bot);
 void Bot_Display_Map(struct Bot * bot);

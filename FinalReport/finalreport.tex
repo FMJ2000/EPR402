@@ -1,0 +1,94 @@
+%%
+%%  Department of Electrical, Electronic and Computer Engineering.
+%%  EPR400/2 Final Report - Main File.
+%%  Copyright (C) 2011-2021 University of Pretoria.
+%%
+
+\documentclass{epr400}
+
+%% EDIT: Replace the following with your information.
+\eprtitle{EPR400/2 Project Report}
+\eprcode{EPR400}
+\eprcandidatename{M.B. Hanekom}
+\eprstudentnumber{1807432}
+\eprdate{November 2021}
+\eprsupervisor{Prof. I.K. Craig}
+\eprcopynum{Electronic copy}
+
+\begin{document}
+
+%% Generate the required title page.
+\maketitlepage
+
+%% --- PART 1 ------------------------------------------------------------
+
+\pagestyle{plain}
+\pagenumbering{roman}
+
+\eprsec{Part 1. Preamble}
+
+\vspace*{0.5cm}
+
+%% Import the required preamble pages.
+\input{preamble}
+\newpage
+
+%% Add the Table of Contents.
+\tableofcontents
+\thispagestyle{empty}
+\newpage
+
+%% Import the required abbreviation pages.
+\input{abbreviations}
+\newpage
+
+%% --- PART 2 ------------------------------------------------------------
+
+\eprsec{Part 2. Project definition: approved Project Proposal}
+
+This section contains the problem identification in the form of the complete approved Project Proposal, unaltered from the final approved version that appears on the AMS.
+
+\newpage
+
+%% Import the approved project proposal
+\includepdf[pages=-,landscape]{approved_proposal.pdf}
+
+%% --- PART 3 ------------------------------------------------------------
+
+\eprsec{Part 3. Main Report}
+\newpage
+
+%% Reset the page number style and count.
+\pagenumbering{arabic}
+\setcounter{page}{1}
+
+%% Import the main report content
+\input{section1}
+\input{section2}
+\input{section3}
+\input{section4}
+\input{section5}
+\input{section6}
+
+%% Use the IEEE Transactions style for the references.
+\bibliographystyle{IEEEtran}
+\bibliography{finalreport}
+\newpage
+
+%% --- PART 4 ------------------------------------------------------------
+
+\eprsec{Part 4. Appendix: technical documentation}
+\newpage
+
+\setcounter{secnumdepth}{0}
+
+\titleformat{\subsection}[display]
+{\fontsize{14pt}{16.8pt}\selectfont\bfseries} {} {5pt} {\formatsubsectiontitle}
+\titleformat{\subsection}[display]
+{\fontsize{14pt}{16.8pt}\selectfont\bfseries} {} {5pt} {\formatsubsectiontitle}
+
+\input{techdoc}
+
+\end{document}
+
+%% End of File.
