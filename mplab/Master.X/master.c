@@ -91,10 +91,10 @@ void __ISR(_TIMER_1_VECTOR, IPL2SOFT) TMR1_IntHandler() {
 	
 	if (bot->count % 10 == 0) {
 		Bot_Pos_Odo(bot);		// odo pos update @ 4 Hz
-		Bot_Trajectory(bot);
 		bot->usState = 0;
-		//Ultrasonic_Trigger();
-		Bot_Display_Status(bot);
+		Ultrasonic_Trigger();
+		//Bot_Display_Status(bot);
+		Bot_Display_Map(bot);
 	}
 
 	if (bot-> count % FREQ == 0) {
@@ -120,7 +120,7 @@ void __ISR(_TIMER_5_VECTOR, IPL2SOFT) TMR5_IntHandler() {
 	// check if all readings taken, update map 
 	if (bot->usState++ == US_SENSORS) {
 		Bot_Map_Update(bot);
-		//Bot_Navigate(bot);
+		Bot_Navigate(bot);
 		bot->usState = 0;
 	}
 }

@@ -7,6 +7,7 @@
 #include <stdarg.h>
 #include <math.h>
 
+#include "node.h"
 #include "map.h"
 #include "aux.h"
 #include "periph.h"
@@ -15,15 +16,15 @@
 #define DT_IMU 0.025		// 40 Hz
 #define DT_ODO 0.25			// 4 Hz
 #define F_IMU 40.0
-#define F_ODO 40.0
+#define F_ODO 4.0
 
 // ukf
 #define UKF_A 1e-3
 #define UKF_B 2
 #define UKF_K 0
-#define UKF_N 6
-#define UKF_T 13
-#define UKF_L -5.994
+#define UKF_N 5
+#define UKF_T 2*UKF_N+1
+#define UKF_L UKF_A*UKF_A * (UKF_N + UKF_K) - UKF_N
 #define SIGMA_Q 0.05
 #define SIGMA_R 0.05
 
@@ -44,7 +45,14 @@
 #define K_RP 0.4
 #define K_RI 0.0002
 #define K_RD 0.02
+#define K_UV 0.8
+#define K_UW 0.3
 #define MIN_GOAL_DIST 0.04
+#define INTEGRAL_LEN 40
+
+// path planning
+#define MAX_COL_COUNT 5
+#define NAV_STEP 0.24
 
 // sensors
 #define SOUND_SPEED 1.65e-4              // TMR5*SOUND_SPEED for distance
@@ -65,24 +73,13 @@
 #define ADC_MIN 120
 #define ADC_SCALE 100.0 / (ADC_MAX - ADC_MIN)
 
-static uint8_t posMod[8][2] = {
-		{-1, 1},
-		{0, 1},
-		{1, 1},
-		{1, 0},
-		{1, -1},
-		{0, -1},
-		{-1, -1},
-		{-1, 0}
-	};
-
 // bot struct
 struct Bot {
 	// state
-	float pos[UKF_N];				// x, y, rot, vx, vy, w		
-	float xp[UKF_N];				// mean of estimate
-	float zp[UKF_N];				// mean of measurement
-	float v[UKF_N][1];			// innovation
+	float pos[UKF_N];						// x, y, rot, v, w
+	float xp[UKF_N];						// mean of estimate
+	float zp[UKF_N];						// mean of measurement
+	float v[UKF_N][1];					// innovation
 
 	// ukf
 	float P[UKF_N][UKF_N];			// covariance P
@@ -95,24 +92,31 @@ struct Bot {
 	float X[UKF_T][UKF_N];			// sigma points
 	float Y[UKF_T][UKF_N];			// processed sigma points
 	float Z[UKF_T][UKF_N];			// measured sigma points
-    float bias[3];
-    long long numBias;
+	float bias[3];
+	long long numBias;
 
 	// sensors
-	float dist[3];			// latest distance readings
-	float imu[3];				// imu reading: ax, ay, gz
-	float odo[2];				// odometry reading
+	float dist[3];							// latest distance readings
+	float imu[3];								// imu reading: ax, ay, gz
+	float odo[2];								// odometry reading
 	uint8_t usState;
 
 	// controller
 	char state;
 	float goal[GOAL_LEN][2];
 	unsigned int goalIndex;
-	float ePosInt[2];
-	float duty[2];			// duty cycle
+	float ePosInt[INTEGRAL_LEN][2];
+	uint8_t ePosIndex;
+	float duty[2];							// duty cycle
+	float uGoal[2];							// desired velocity input to motor control
+
+	// planning
+	uint8_t collideCount;
+	float explorePos[2];				// desired position for information gain
+	struct Node * goalNode;
 	
 	// map
-	struct Map * map;		// current submap
+	struct Map * map;						// current submap
     
 	// battery
 	float battery;
@@ -138,11 +142,14 @@ void Bot_UKF_Mean(uint8_t rows, float result[rows], float X[UKF_T][rows]);
 void Bot_UKF_Cov(uint8_t rows, float result[rows][rows], float X[UKF_T][rows], float m[rows]);
 void Bot_UKF_Update(struct Bot * bot);
 
-void Bot_Control(struct Bot * bot);
-void Bot_Trajectory(struct Bot * bot);
+void Bot_Motor_Control(struct Bot * bot);
+void Bot_Pos_Control(struct Bot * bot);
+void Bot_Navigate(struct Bot * bot);
 void Bot_Explore(struct Bot * bot);
+void Bot_Detect_Collision(struct Bot * bot);
 
 void Bot_Display_Status(struct Bot * bot);
+void Bot_Display_Map(struct Bot * bot);
 void Bot_UART_Send_Status(struct Bot * bot);
 void Bot_UART_Write(struct Bot * bot, char * format, ...);
 void Mat_Print(struct Bot * bot, uint8_t rows, uint8_t cols, float mat[rows][cols], char * title);

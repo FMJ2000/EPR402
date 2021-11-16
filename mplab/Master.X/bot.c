@@ -10,7 +10,6 @@ void Bot_Init(struct Bot ** bot, float pos[3]) {
 	Map_Init(&((*bot)->map), mapPos);
 	(*bot)->portCN = 1;
 	(*bot)->goal[0][0] = 0.5;
-	
 	Bot_UKF_Init(*bot);
 }
 
@@ -34,7 +33,8 @@ void Bot_Map_Required(struct Bot * bot) {
 }
 
 void Bot_Map_Update(struct Bot * bot) {
-	
+	Map_Update(bot->map, bot->pos, bot->dist);
+	for (uint8_t i = 0; i < 8; i++) Map_Update(bot->map->neighbors[i], bot->pos, bot->dist);
 }
 
 void Bot_Bias(struct Bot * bot) {
@@ -83,20 +83,32 @@ void Bot_Pos_Odo(struct Bot * bot) {
 	Odometer_Read(bot->odo, F_ODO);
 	if ((bot->state & STATE_MASK) != NAVIGATE) return;
 
-	float oVel[2] = { bot->odo[0]*WHEEL_R, bot->odo[1]*WHEEL_R };
-	float w = (oVel[1] - oVel[0]) / 2;
-	float r = (oVel[1] + oVel[0]) * CHASSIS_L / (2*(oVel[1] - oVel[0]));
-	for (uint8_t i = 0; i < UKF_T; i++) {
-		// measure
-		float xIcc[2] = { bot->X[i][0] - r*sin(bot->X[i][2]), bot->X[i][1] + r*cos(bot->X[i][2]) };
-		bot->Z[i][0] = (bot->X[i][0] - xIcc[0])*cos(w*DT_ODO) - (bot->X[i][1] - xIcc[1])*sin(w*DT_ODO) + xIcc[0];
-		bot->Z[i][1] = (bot->X[i][0] - xIcc[0])*sin(w*DT_ODO) + (bot->X[i][1] - xIcc[1])*cos(w*DT_ODO) + xIcc[1];
-		bot->Z[i][2] = bot->X[i][2] + w*DT_ODO;
-		bot->Z[i][3] = bot->X[i][3]*cos(bot->Z[i][2]);
-		bot->Z[i][4] = bot->X[i][4]*cos(bot->Z[i][2]);
-		bot->Z[i][5] = w;
+	if (bot->odo[0] == bot->odo[1]) {
+		// moving straight ahead
+		for (uint8_t i = 0; i < UKF_T; i++) {
+			bot->Z[i][3] = 0.5*cos(bot->Y[i][2])*(bot->odo[0] + bot->odo[1]);
+			bot->Z[i][4] = 0.5*sin(bot->Y[i][2])*(bot->odo[0] + bot->odo[1]);
+			bot->Z[i][5] = (bot->odo[0] - bot->odo[1]) / CHASSIS_L;
+			for (uint8_t j = 0; j < 3; j++) bot->Z[i][j] = bot->X[i][j] + bot->Z[i][3+j]*DT_IMU;
+		}
+	} else {
+		// turning
+		float oVel[2] = { bot->odo[0], bot->odo[1] };
+		float w = (oVel[1] - oVel[0]) / 2;
+		float r = (oVel[1] + oVel[0]) * CHASSIS_L / (2*(oVel[1] - oVel[0]));
+		for (uint8_t i = 0; i < UKF_T; i++) {
+			// measure
+			float xIcc[2] = { bot->X[i][0] - r*sin(bot->X[i][2]), bot->X[i][1] + r*cos(bot->X[i][2]) };
+			bot->Z[i][0] = (bot->X[i][0] - xIcc[0])*cos(w*DT_ODO) - (bot->X[i][1] - xIcc[1])*sin(w*DT_ODO) + xIcc[0];
+			bot->Z[i][1] = (bot->X[i][0] - xIcc[0])*sin(w*DT_ODO) + (bot->X[i][1] - xIcc[1])*cos(w*DT_ODO) + xIcc[1];
+			bot->Z[i][2] = bot->X[i][2] + w*DT_ODO;
+			bot->Z[i][3] = bot->X[i][3]*cos(bot->Z[i][2]);
+			bot->Z[i][4] = bot->X[i][4]*cos(bot->Z[i][2]);
+			bot->Z[i][5] = w;
+		}
 	}
-	
+
+	//Mat_Print(bot, UKF_T, UKF_N, bot->Z, "Z");
 	// update and new sigma points
 	Bot_UKF_Update(bot);
 	Bot_UKF_Sigma(bot);
@@ -210,25 +222,11 @@ void Bot_UKF_Update(struct Bot * bot) {
 	Mat_Sub(UKF_N, UKF_N, bot->P, bot->Pp, KKP);
 }
 
-// control functions 
-void Bot_Control(struct Bot * bot) {
+// motor controller at 40 Hz
+void Bot_Motor_Control(struct Bot * bot) {
 	if ((bot->state & STATE_MASK) == NAVIGATE) {
-		// obtain current and integral errors
-		float ePos[2] = { getDistance(bot->pos, bot->goal[bot->goalIndex]), getAngle(bot->pos, bot->goal[bot->goalIndex]) - bot->pos[2] };
-		ePos[1] = normAngle(ePos[1]);
-		float eVel[2] = { K_DO * ePos[0] / (K_DA + ePos[0]) - bot->pos[3],  K_RO * ePos[1] / (K_RA + ePos[1]) - bot->pos[5] };
-		bot->ePosInt[0] += ePos[0] * DT_IMU;
-		bot->ePosInt[1] += ePos[1] * DT_IMU;
-		
-		// implement PID controller
-		float pid[2] = {
-			K_DP*ePos[0] + K_DI*bot->ePosInt[0] + K_DD*eVel[0],
-			K_RP*ePos[1] + K_RI*bot->ePosInt[1] + K_RD*eVel[1]
-		};
-		
-		
-		bot->duty[0] = K_DO * pid[0] / (K_DA + pid[0]) + pid[1];
-		bot->duty[1] = K_DO * pid[0] / (K_DA + pid[0]) - pid[1];
+		bot->duty[0] = K_UV * bot->uGoal[0] + K_UW * bot->uGoal[1];
+		bot->duty[1] = K_UV * bot->uGoal[0] - K_UW * bot->uGoal[1];
 	} else {
 		bot->duty[0] = 0;
 		bot->duty[1] = 0;
@@ -253,15 +251,72 @@ void Bot_Control(struct Bot * bot) {
 	}
 
 	OC4RS = (int)(convDuty[0] * PWM_T);
-  OC5RS = (int)(convDuty[1] * PWM_T);
+	OC5RS = (int)(convDuty[1] * PWM_T);
 }
 
-void Bot_Trajectory(struct Bot * bot) {
-	if (getDistance(bot->goal[bot->goalIndex], bot->pos) < MIN_GOAL_DIST) bot->state = (bot->state & ~STATE_MASK) | IDLE;
+// position controller at 4 Hz
+void Bot_Pos_Control(struct Bot * bot) {
+	if ((bot->state & STATE_MASK) != NAVIGATE) return;
+
+	// obtain current and integral errors
+	float e[2] = { getDistance(bot->pos, bot->goal[bot->goalIndex]), normAngle(getAngle(bot->pos, bot->goal[bot->goalIndex]) - bot->pos[2]) };
+	memcpy(bot->ePosInt[bot->ePosIndex], e, sizeof(float) * 2);
+	uint8_t prevIndex = (bot->ePosIndex > 0) ? bot->ePosIndex - 1 : INTEGRAL_LEN - 1;
+	float eD[2] = { (e[0] - bot->ePosInt[prevIndex][0]) / DT_IMU, e[1] - bot->ePosInt[prevIndex][1]) / DT_IMU };
+	float eI[2] = { 0 };
+	for (uint8_t i = 0; i < INTEGRAL_LEN; i++) {
+		eI[0] += bot->ePosInt[i][0] * DT_IMU;
+		eI[0] += bot->ePosInt[i][1] * DT_IMU;
+	}
+
+	// implement PID controller
+	float u[2] = {
+		K_DP*e[0] + K_DI*eI[0] + K_DD*eD[0],
+		K_RP*e[1] + K_RI*eI[1] + K_RD*eD[1]
+	};
+
+	bot->uGoal[0] = K_DO * u[0] / (K_DA + u[0]);
+	bot->uGoal[1] = K_RO * u[1] / (K_RA + u[1]);
+}
+
+// A* search algorithm
+void Bot_Navigate(struct Bot * bot) {
+	// check if new path required
+	if (!Bot_Detect_Collision(bot) && getDistance(bot->goalNode->pos, bot->explorePos) < MIN_GOAL_DIST) return;
+
+	// build queues of nodes
+	struct NodeQueue openQueue = {0};
+	struct NodeQueue closedQueue = {0};
+
+
 }
 
 void Bot_Explore(struct Bot * bot) {
 
+}
+
+char Bot_Detect_Collision(struct Bot * bot) {
+	// check for collision
+	if (bot->duty[0] + bot->duty[1] > 0 && bot->odo[0] + bot->odo[1] == 0) bot->collisionCount++;
+	else bot->collisionCount = 0;
+	if (bot->collisionCount >= MAX_COL_COUNT) {
+		bot->collisionCount = 0;
+		return 1;
+	}
+
+	// check for collision on trajectory - assuming constant velocity
+	float xt[3] = { bot->pos[0], bot->pos[1], bot->pos[2] };
+	for (uint8_t i = 0; i < (uint8_t)F_IMU; i++) {
+		xt[2] += xt[4];
+		xt[0] += xt[3]*cos(xt[2]);
+		xt[1] += xt[3]*sin(xt[2]);
+		char fObs = Map_Pos_Collide(bot->map, xt);
+		uint8_t nIndex = 0;
+		while (fObs == -1 && nIndex < 8) fObs = Map_Pos_Collide(bot->map->neighbors[nIndex++], xt);
+		if (fObs == 1) return 1;
+	}
+
+	return 0;
 }
 
 // print
@@ -280,6 +335,16 @@ void Bot_Display_Status(struct Bot * bot) {
 	OLED_Write_Text(0, 30, "dc %.2f %.2f o %d %d", bot->duty[0], bot->duty[1], bot->odo[0], bot->odo[1]);
 	OLED_Write_Text(0, 40, "us %.2f %.2f %.2f", bot->dist[0], bot->dist[1], bot->dist[2]);
 	OLED_Write_Text(0, 50, "i %.2f %.2f %.f", bot->imu[0], bot->imu[1], bot->imu[2] * 180. / M_PI);
+	OLED_Update();
+}
+
+void Bot_Display_Map(struct Bot * bot) {
+	OLED_FillDisplay();
+	for (uint8_t i = 0; i < MAP_UNITS; i++) {
+		for (uint8_t j = 0; j < MAP_UNITS; j++) {
+			if (bot->map->grid[i][j] < 0.5) OLED_FillRectangle(2*i, 2*j, 2*i+2, 2*j+2, BLACK); 
+		}
+	}
 	OLED_Update();
 }
 

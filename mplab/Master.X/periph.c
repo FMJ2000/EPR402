@@ -184,8 +184,8 @@ void Ultrasonic_Trigger() {
 }
 
 uint8_t Odometer_Read(float odo[2], uint8_t times) {
-    odo[0] = TMR2 * times;
-    odo[1] = TMR4 * times;
+    odo[0] = 2*M_PI*WHEEL_R*TMR2*times / WHEEL_HOLES;
+    odo[1] = 2*M_PI*WHEEL_R*TMR4*times / WHEEL_HOLES;
     TMR2 = 0x0;
     TMR4 = 0x0;
 }
