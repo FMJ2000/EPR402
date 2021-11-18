@@ -89,15 +89,20 @@ void __ISR(_TIMER_1_VECTOR, IPL2SOFT) TMR1_IntHandler() {
 	bot->count++;
 	
 	Bot_Pos_IMU(bot);		// imu pos update @ 40 Hz
-	Bot_Motor_Control(bot);
+	Bot_Pos_Control(bot);
+	
 	//Bot_UART_Status(bot);
 	
-	if (bot->count % 10 == 0) {
+	if (bot->count % 5 == 0) {
 		Bot_Pos_Odo(bot);		// odo pos update @ 4 Hz
-		Bot_Pos_Control(bot);
-		Ultrasonic_Trigger();	// distance reading @ 2 Hz
 		Bot_Display_Status(bot);
+		
 		//Bot_Display_Map(bot);
+	}
+	
+	if (bot->count % 10 == 0) {
+		Ultrasonic_Trigger();	// distance reading @ 2 Hz
+		
 	}
 
 	if (bot-> count % FREQ == 0) {
@@ -142,13 +147,13 @@ void __ISR(_CHANGE_NOTICE_VECTOR, IPL2SOFT) CNB_IntHandler() {
 	IFS1CLR = _IFS1_CNBIF_MASK;
 	if (bot->portCN && !(PORTB & 0x20)) {
 		/* button press occured */
-	    if (bot->dblClickCount == 0) {
-		bot->dblClickCount++;
+	    //if (bot->dblClickCount == 0) {
+		//bot->dblClickCount++;
 		char newState = ((bot->state & STATE_MASK) == IDLE) ? NAVIGATE : IDLE;
 		bot->state = (bot->state & ~STATE_MASK) | newState;
-		bot->portCN = 0;
+		bot->portCN = 1;
 		return;
-	    }
+	    //}
 	    
 	    free(bot);
 	    SYS_Unlock();

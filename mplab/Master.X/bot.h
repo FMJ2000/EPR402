@@ -25,9 +25,9 @@
 #define UKF_N 5
 #define UKF_T 2*UKF_N+1
 #define UKF_L (float)UKF_A*UKF_A * (UKF_N + UKF_K) - UKF_N
-#define SIGMA_Q 0.05
+#define SIGMA_Q 0.9
 #define SIGMA_R 0.05
-#define K_OLD 0.3
+#define K_OLD 0.
 
 // controller
 #define PWM_T 0xFFF
@@ -35,10 +35,10 @@
 #define WHEEL_R 0.032
 #define WHEEL_HOLES 20.0
 #define CHASSIS_L 0.15
-#define K_DO 0.3
-#define K_DA 0.008
-#define K_RO 0.6
-#define K_RA 0.4
+#define K_DO 0.18
+#define K_DA 0.02
+#define K_RO 0.15
+#define K_RA 0.8
 #define K_DP 0.6
 #define K_DI 0.002
 #define K_DD 0.002
@@ -48,8 +48,9 @@
 #define K_UV 0.2
 #define K_UW 0.2
 #define MIN_GOAL_DIST 0.1
-#define MIN_DC 0.12
+#define MIN_DC 0.1
 #define INTEGRAL_LEN 40
+#define TURN_REF 0.3490659
 
 // path planning
 #define MAX_COL_COUNT 5
@@ -95,6 +96,7 @@ static const int bPosMod[8][2] = {
 struct Bot {
 	// state
 	float pos[UKF_N];						// x, y, rot, v, w
+    float ePos[2];
 	float xp[UKF_N];						// mean of estimate
 	float zp[UKF_N];						// mean of measurement
 	float v[UKF_N][1];					// innovation
@@ -159,7 +161,7 @@ void Bot_UKF_Init(struct Bot * bot);
 void Bot_UKF_Sigma(struct Bot * bot);
 void Bot_UKF_Mean(uint8_t rows, float result[rows], float X[UKF_T][rows]);
 void Bot_UKF_Cov(uint8_t rows, float result[rows][rows], float X[UKF_T][rows], float m[rows]);
-void Bot_UKF_Update(struct Bot * bot);
+void Bot_UKF_Update(struct Bot * bot, float weight);
 
 void Bot_Motion_Model(float (*x)[5], float dt);
 void Bot_Motor_Control(struct Bot * bot);
@@ -174,6 +176,7 @@ void Bot_Display_Map(struct Bot * bot);
 void Bot_UART_Status(struct Bot * bot);
 void Bot_UART_NodeQueue(struct Bot * bot, struct NodeQueue * queue);
 void Bot_UART_Node(struct Bot * bot, struct Node * node);
+void Bot_UART_Map(struct Bot * bot);
 void Bot_UART_Write(struct Bot * bot, char * format, ...);
 void Mat_Print(struct Bot * bot, uint8_t rows, uint8_t cols, float mat[rows][cols], char * title);
 void Vec_Print(struct Bot * bot, uint8_t cols, float vec[cols], char * title);

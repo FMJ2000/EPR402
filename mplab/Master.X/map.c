@@ -81,7 +81,7 @@ void Map_Cell_Update(float * cell, float dist, float z) {
 char Map_Contains(struct Map * map, float pos[2]) {
 	if (!map) return 0;
 	float xRange[2] = { map->pos[0], map->pos[0] + MAP_SIZE };
-	float yRange[2] = { map->pos[1], map->pos[1] + MAP_SIZE };
+	float yRange[2] = { map->pos[1] - MAP_SIZE, map->pos[1] };
 	return ((pos[0] >= xRange[0]) && (pos[0] < xRange[1]) && (pos[1] >= yRange[0]) && (pos[1] < yRange[1]));
 }
 

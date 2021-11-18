@@ -183,9 +183,9 @@ void Ultrasonic_Trigger() {
     LATBCLR = _LATB_LATB10_MASK;
 }
 
-uint8_t Odometer_Read(float odo[2], uint8_t times) {
-    odo[0] = 2*M_PI*WHEEL_R*TMR2*times / WHEEL_HOLES;
-    odo[1] = 2*M_PI*WHEEL_R*TMR4*times / WHEEL_HOLES;
+uint8_t Odometer_Read(float (*odo)[2], float times) {
+    (*odo)[0] = 2*M_PI*WHEEL_R*TMR2*times / WHEEL_HOLES;
+    (*odo)[1] = 2*M_PI*WHEEL_R*TMR4*times / WHEEL_HOLES;
     TMR2 = 0x0;
     TMR4 = 0x0;
 }

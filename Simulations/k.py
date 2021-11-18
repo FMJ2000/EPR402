@@ -2,16 +2,16 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # distance
-da = 0.008
-dk = 0.4	
+da = 0.02
+dk = 0.18	
 dt = np.linspace(0.0, 0.9, 100)
 dx = (dk*dt) / (da + dt)
 
 # angle
-ra = 0.4
-rk = np.pi
-rt = np.linspace(0.0, np.pi, 100)
-rx = (rk*rt) / (ra + rt)
+ra = 0.8
+rk = 0.15
+rt = np.linspace(-np.pi, np.pi, 100)
+rx = (rk*rt) / (ra + np.abs(rt))
 
 fig, axes = plt.subplots(1, 2, figsize=(10,5))
 axes[0].plot(dt, dx)
