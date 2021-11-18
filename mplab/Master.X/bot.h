@@ -13,20 +13,21 @@
 #include "periph.h"
 #include "imu.h"
 
-#define DT_IMU 0.025		// 40 Hz
+#define DT_IMU 0.05         // 20 Hz
 #define DT_ODO 0.25			// 4 Hz
-#define F_IMU 40.0
+#define F_IMU 20.0
 #define F_ODO 4.0
 
 // ukf
-#define UKF_A 1e-3
+#define UKF_A 1e-1
 #define UKF_B 2
 #define UKF_K 0
 #define UKF_N 5
 #define UKF_T 2*UKF_N+1
-#define UKF_L UKF_A*UKF_A * (UKF_N + UKF_K) - UKF_N
+#define UKF_L (float)UKF_A*UKF_A * (UKF_N + UKF_K) - UKF_N
 #define SIGMA_Q 0.05
 #define SIGMA_R 0.05
+#define K_OLD 0.3
 
 // controller
 #define PWM_T 0xFFF
@@ -34,32 +35,37 @@
 #define WHEEL_R 0.032
 #define WHEEL_HOLES 20.0
 #define CHASSIS_L 0.15
-#define GOAL_LEN 256
-#define K_DO 0.4
-#define K_DA 0.08
-#define K_RO M_PI
+#define K_DO 0.3
+#define K_DA 0.008
+#define K_RO 0.6
 #define K_RA 0.4
-#define K_DP 0.8
+#define K_DP 0.6
 #define K_DI 0.002
-#define K_DD 0.04
-#define K_RP 0.4
+#define K_DD 0.002
+#define K_RP 0.2
 #define K_RI 0.0002
-#define K_RD 0.02
-#define K_UV 0.8
-#define K_UW 0.3
-#define MIN_GOAL_DIST 0.04
+#define K_RD 0.001
+#define K_UV 0.2
+#define K_UW 0.2
+#define MIN_GOAL_DIST 0.1
+#define MIN_DC 0.12
 #define INTEGRAL_LEN 40
 
 // path planning
 #define MAX_COL_COUNT 5
+#define V_REF 0.1
+#define W_REF 0.2
 #define NAV_STEP 0.24
-#define NAV_SQRT sqrt(2*NAV_STEP)
+#define NAV_SQRT 0.339411
+#define MIN_SEARCH_GOAL 0.17
+#define GOAL_LEN 256
+#define MAX_SEARCH_ITER 4096
 
 // sensors
-#define SOUND_SPEED 1.65e-4              // TMR5*SOUND_SPEED for distance
+#define SOUND_SPEED 3.3e-4              // TMR5*SOUND_SPEED for distance
 
 // auxiliary
-#define BUF_LEN 1024
+#define BUF_LEN 2048
 #define OLED_LINE_LEN 24
 
 // state
@@ -73,6 +79,17 @@
 #define ADC_MAX 192
 #define ADC_MIN 120
 #define ADC_SCALE 100.0 / (ADC_MAX - ADC_MIN)
+
+static const int bPosMod[8][2] = {
+	{-1, 1},
+	{0, 1},
+	{1, 1},
+	{1, 0},
+	{1, -1},
+	{0, -1},
+	{-1, -1},
+	{-1, 0}
+};
 
 // bot struct
 struct Bot {
@@ -101,6 +118,7 @@ struct Bot {
 	float imu[3];								// imu reading: ax, ay, gz
 	float odo[2];								// odometry reading
 	uint8_t usState;
+    unsigned int usCount;
 
 	// controller
 	char state;
@@ -147,12 +165,15 @@ void Bot_Motion_Model(float (*x)[5], float dt);
 void Bot_Motor_Control(struct Bot * bot);
 void Bot_Pos_Control(struct Bot * bot);
 void Bot_Navigate(struct Bot * bot);
+void Bot_Backtrack(struct Bot * bot, struct Node * node);
 void Bot_Explore(struct Bot * bot);
 char Bot_Detect_Collision(struct Bot * bot);
 
 void Bot_Display_Status(struct Bot * bot);
 void Bot_Display_Map(struct Bot * bot);
-void Bot_UART_Send_Status(struct Bot * bot);
+void Bot_UART_Status(struct Bot * bot);
+void Bot_UART_NodeQueue(struct Bot * bot, struct NodeQueue * queue);
+void Bot_UART_Node(struct Bot * bot, struct Node * node);
 void Bot_UART_Write(struct Bot * bot, char * format, ...);
 void Mat_Print(struct Bot * bot, uint8_t rows, uint8_t cols, float mat[rows][cols], char * title);
 void Vec_Print(struct Bot * bot, uint8_t cols, float vec[cols], char * title);

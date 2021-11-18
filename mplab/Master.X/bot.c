@@ -8,10 +8,14 @@ void Bot_Init(struct Bot ** bot, float pos[3]) {
 	memcpy((*bot)->pos, pos, sizeof(float) * 3);
 	float mapPos[2] = { pos[0] - MAP_SIZE / 2, pos[1] + MAP_SIZE / 2 };
 	Map_Init(&((*bot)->map), mapPos);
+	Bot_Map_Required(*bot);
 	(*bot)->portCN = 1;
-	(*bot)->goal[0][0] = 0.5;
 	Bot_UKF_Init(*bot);
-	(*bot)->goalNode = malloc(sizeof(struct Node));
+	(*bot)->goalIndex = GOAL_LEN - 1;
+	
+	// temporary configurations
+	//(*bot)->goal[0][0] = 0.5;
+	(*bot)->explorePos[0] = 0.5;
 }
 
 // determine maps that form part of local map and create if necessary
@@ -34,6 +38,7 @@ void Bot_Map_Required(struct Bot * bot) {
 }
 
 void Bot_Map_Update(struct Bot * bot) {
+	Bot_Map_Required(bot);
 	Map_Update(bot->map, bot->pos, bot->dist);
 	for (uint8_t i = 0; i < 8; i++) Map_Update(bot->map->neighbors[i], bot->pos, bot->dist);
 }
@@ -61,15 +66,14 @@ void Bot_Pos_IMU(struct Bot * bot) {
 
 	for (uint8_t i = 0; i < UKF_T; i++) {
 		// measure
-		bot->Z[i][3] = bot->Y[i][3] + bot->imu[0]*DT_IMU;
-		bot->Z[i][4] = bot->imu[2];
-
-		Bot_Motion_Model(&(bot->Y[i]), DT_IMU);
+		bot->Z[i][3] += bot->imu[0]*DT_IMU;
+		bot->Z[i][4] = K_OLD*bot->Z[i][4] + (1-K_OLD)*bot->imu[2];
 		Bot_Motion_Model(&(bot->Z[i]), DT_IMU);
 		
 		// process
-		bot->Y[i][3] = 0.5*WHEEL_R*PWM_V*(bot->duty[0] + bot->duty[1]);
-		bot->Y[i][4] = WHEEL_R*PWM_V*(bot->duty[0] - bot->duty[1]) / CHASSIS_L;
+		bot->Y[i][3] = K_OLD*bot->Y[i][3] + (1-K_OLD)*0.5*WHEEL_R*PWM_V*(bot->duty[0] + bot->duty[1]);
+		bot->Y[i][4] = K_OLD*bot->Y[i][4] + (1-K_OLD)*WHEEL_R*PWM_V*(bot->duty[0] - bot->duty[1]) / CHASSIS_L;
+		Bot_Motion_Model(&(bot->Y[i]), DT_IMU);
 	}
 	// update
 	Bot_UKF_Update(bot);
@@ -81,8 +85,8 @@ void Bot_Pos_Odo(struct Bot * bot) {
 	if ((bot->state & STATE_MASK) != NAVIGATE) return;
 	
 	for (uint8_t i = 0; i < UKF_T; i++) {
-		bot->Z[i][3] = 0.5*(bot->odo[0] + bot->odo[1]);
-		bot->Z[i][4] = (bot->odo[0] - bot->odo[1]) / CHASSIS_L;
+		bot->Z[i][3] = K_OLD*bot->Z[i][3] + (1-K_OLD)*0.5*(bot->odo[0] + bot->odo[1]);
+		bot->Z[i][4] = K_OLD*bot->Z[i][4] + (1-K_OLD)*(bot->odo[0] - bot->odo[1]) / CHASSIS_L;
 
 		memcpy(bot->Z[i], bot->X[i], sizeof(float) * 3);
 		Bot_Motion_Model(&bot->Z[i], DT_ODO);
@@ -120,6 +124,7 @@ void Bot_UKF_Sigma(struct Bot * bot) {
 		}
 	}
 	memcpy(bot->Y, bot->X, sizeof(bot->Y));
+	memcpy(bot->Z, bot->X, sizeof(bot->Z));
 }
 
 void Bot_UKF_Mean(uint8_t rows, float result[rows], float X[UKF_T][rows]) {
@@ -190,6 +195,7 @@ void Bot_UKF_Update(struct Bot * bot) {
 	Mat_Inv(UKF_N, Pvv_inv, bot->Pvv);
 	Mat_Mul(UKF_N, UKF_N, UKF_N, K, bot->Pxz, Pvv_inv);
 	Mat_Mul(UKF_N, 1, UKF_N, K_zp, K, bot->v);
+	//Mat_Print(bot, UKF_N, UKF_N, bot->Z, "Z");
 	for (uint8_t i = 0; i < UKF_N; i++) bot->pos[i] = bot->xp[i] + K_zp[i][0];
 	bot->pos[2] = normAngle(bot->pos[2]);
 
@@ -203,17 +209,21 @@ void Bot_UKF_Update(struct Bot * bot) {
 }
 
 void Bot_Motion_Model(float (*x)[UKF_N], float dt) {
-	*(x[2]) += *(x[4])*dt;
-	*(x[0]) += *(x[3])*cos(*(x[2]))*dt;
-	*(x[1]) += *(x[3])*sin(*(x[2]))*dt;
+	(*x)[2] = normAngle((*x)[2] + (*x)[4]*dt);
+	(*x)[0] += (*x)[3]*cos((*x)[2])*dt;
+	(*x)[1] += (*x)[3]*sin((*x)[2])*dt;
 }
 
 // motor controller at 40 Hz
 void Bot_Motor_Control(struct Bot * bot) {
 	if ((bot->state & STATE_MASK) == NAVIGATE) {
-		float e[2] = { bot->uGoal[0] - (bot->odo[0] + bot->odo[1]) / 2, bot->uGoal[1] - (bot->odo[0] - bot->odo[1]) / CHASSIS_L };
+		/*float e[2] = { bot->uGoal[0] - 0.5*WHEEL_R*PWM_V*(bot->odo[0] + bot->odo[1]), bot->uGoal[1] - WHEEL_R*PWM_V*(bot->odo[0] - bot->odo[1]) / CHASSIS_L };
 		bot->duty[0] = K_UV * e[0] + K_UW * e[1];
-		bot->duty[1] = K_UV * e[0] - K_UW * e[1];
+		bot->duty[1] = K_UV * e[0] - K_UW * e[1];*/
+		bot->duty[0] = bot->uGoal[0] + bot->uGoal[1];
+		bot->duty[1] = bot->uGoal[0] - bot->uGoal[1];
+		if (fabs(bot->duty[0]) < MIN_DC) bot->duty[0] = 0;
+		if (fabs(bot->duty[1]) < MIN_DC) bot->duty[1] = 0;
 	} else {
 		bot->duty[0] = 0;
 		bot->duty[1] = 0;
@@ -245,16 +255,25 @@ void Bot_Motor_Control(struct Bot * bot) {
 void Bot_Pos_Control(struct Bot * bot) {
 	if ((bot->state & STATE_MASK) != NAVIGATE) return;
 
+	// check if new path needed
+	if (Bot_Detect_Collision(bot)) Bot_Navigate(bot);
+	if (getDistance(bot->goal[bot->goalIndex], bot->pos) < MIN_GOAL_DIST) {
+		bot->goalIndex++;
+		if (bot->goalIndex == GOAL_LEN) Bot_Navigate(bot);
+	}
+
 	// obtain current and integral errors
 	float e[2] = { getDistance(bot->pos, bot->goal[bot->goalIndex]), normAngle(getAngle(bot->pos, bot->goal[bot->goalIndex]) - bot->pos[2]) };
 	memcpy(bot->ePosInt[bot->ePosIndex], e, sizeof(float) * 2);
 	uint8_t prevIndex = (bot->ePosIndex > 0) ? bot->ePosIndex - 1 : INTEGRAL_LEN - 1;
 	float eD[2] = { (e[0] - bot->ePosInt[prevIndex][0]) / DT_IMU, e[1] - bot->ePosInt[prevIndex][1] / DT_IMU };
+	//float eD[2] = { K_DO * e[0] / (K_DA + e[0]) - bot->pos[3], K_RO * fabs(e[1]) / (K_RA + fabs(e[1])) - bot->pos[4] }
 	float eI[2] = { 0 };
 	for (uint8_t i = 0; i < INTEGRAL_LEN; i++) {
 		eI[0] += bot->ePosInt[i][0] * DT_IMU;
 		eI[0] += bot->ePosInt[i][1] * DT_IMU;
 	}
+	bot->ePosIndex = (bot->ePosIndex + 1) % INTEGRAL_LEN;
 
 	// implement PID controller
 	float u[2] = {
@@ -263,41 +282,51 @@ void Bot_Pos_Control(struct Bot * bot) {
 	};
 
 	bot->uGoal[0] = K_DO * u[0] / (K_DA + u[0]);
-	bot->uGoal[1] = K_RO * u[1] / (K_RA + u[1]);
+	bot->uGoal[1] = K_RO * u[1]; // / (K_RA + u[1]);
 }
 
 // A* search algorithm
 void Bot_Navigate(struct Bot * bot) {
-	// check if new path required
-	if (!Bot_Detect_Collision(bot) && getDistance(bot->goalNode->posf, bot->explorePos) < MIN_GOAL_DIST) return;
-
+	// check if new exploration point needed
+	if (getDistance(bot->pos, bot->explorePos) < MIN_GOAL_DIST) Bot_Explore(bot);  
+	Bot_UART_Write(bot, "exPos: (%.2f, %.2f)\r\n", bot->explorePos[0], bot->explorePos[1]);
+	delay(1000000l);
+	
 	// build queues of nodes
 	struct NodeQueue openQueue = {0};
 	struct NodeQueue closedQueue = {0};
 	struct Node initNode = { .h=getDistance(bot->explorePos, bot->pos) };
 	NodeQueue_Add(&openQueue, &initNode);
-
-	struct Node * node;
-	while (!NodeQueue_Empty(&openQueue)) {
-		node = NodeQueue_Remove(&openQueue, NodeQueue_Best(&openQueue));
+	
+	struct Node * node = NULL;
+	int iter = 0;
+	while (!NodeQueue_Empty(&openQueue) && iter++ < MAX_SEARCH_ITER) {
+		unsigned int bestIndex = NodeQueue_Best(&openQueue);
+		NodeQueue_Remove(&openQueue, &node, bestIndex);
+		
 		if (node) {
 			NodeQueue_Add(&closedQueue, node);
-
+			
 			// check if goalNode
-			if (node->h < MIN_GOAL_DIST) {
-				bot->goalNode = node;
+			if (node->h < MIN_SEARCH_GOAL) {
+				Bot_Backtrack(bot, node);
+				NodeQueue_Destroy(&openQueue);
+				NodeQueue_Destroy(&closedQueue);
 				return;
 			}
 
 			// expand neighbors
 			for (uint8_t i = 0; i < 8; i++) {
-				int newPosI[2] = { node->pos[0] + posMod[i][0], node->pos[1] + posMod[i][1] };
+				int newPosI[2] = { node->pos[0] + bPosMod[i][0], node->pos[1] + bPosMod[i][1] };
+				char flag = NodeQueue_Contains(&closedQueue, newPosI);
+				Bot_UART_Write(bot, "%d, (%d, %d)\r\n", flag, newPosI[0], newPosI[1]);
+				delay(100000l);
 				if (NodeQueue_Contains(&closedQueue, newPosI) == -1) {
 					float newPosF[2] = { bot->pos[0] + NAV_STEP*newPosI[0], bot->pos[1] + NAV_STEP*newPosI[1] };
-					char fObs = Map_Pos_Collide(bot->map, newPosF);
+					char fObs = 0;//Map_Pos_Collide(bot->map, newPosF);
 					uint8_t nIndex = 0;
-					while (fObs == -1 && nIndex < 8) fObs = Map_Pos_Collide(bot->map->neighbors[nIndex++], newPosF);
-					if (fObs == 0) {
+					//while (fObs == -1 && nIndex < 8) fObs = Map_Pos_Collide(bot->map->neighbors[nIndex++], newPosF);
+					if (!fObs) {
 						int openIndex = NodeQueue_Contains(&openQueue, newPosI);
 						float cost = (i % 2 == 0) ? NAV_SQRT : NAV_STEP;
 						if (openIndex == -1) {
@@ -319,15 +348,51 @@ void Bot_Navigate(struct Bot * bot) {
 			}
 		}
 	}
+	Bot_UART_Write(bot, "not found\r\n");
+	delay(100000l);
+	NodeQueue_Destroy(&openQueue);
+	NodeQueue_Destroy(&closedQueue);
+	/*
+	// path not found, calculate new explore pos then recursive
+	Bot_Explore(bot);
+	Bot_Navigate(bot);
+	 */
 }
 
-void Bot_Explore(struct Bot * bot) {
+void Bot_Backtrack(struct Bot * bot, struct Node * node) {
+	Bot_UART_Node(bot, node);
+	delay(1000000l);
+	if (node == NULL) return;
+	bot->goalIndex = GOAL_LEN;
+	int count = 0;
+	while (node != NULL && bot->goalIndex >= 0) {
+		if (++count % 2) memcpy(bot->goal[--bot->goalIndex], node->posf, sizeof(float) * 2);
+		node = node->parent;
+	}
+	for (int i = bot->goalIndex; i < GOAL_LEN; i++) {
+		Bot_UART_Write(bot, "%d, (%.2f, %.2f)\r\n", i, bot->goal[i][0], bot->goal[i][1]);
+		delay(100000l);
+	}
+}
 
+// choose a new exploration position to maximize information gain
+void Bot_Explore(struct Bot * bot) {
+	// build edge map of current map first, then neighbors
+	uint8_t fIndex[2] = {0};
+	float fPos[2] = {0};
+	if (Map_Frontier(bot->map, bot->pos, fIndex))	memcpy(fPos, bot->map->pos, sizeof(float) * 2);
+	else {
+		uint8_t mIndex = 0;
+		while (mIndex < 8 && !Map_Frontier(bot->map->neighbors[mIndex++], bot->pos, fIndex));
+		if (bot->map->neighbors[mIndex-1]) memcpy(fPos, bot->map->neighbors[mIndex-1]->pos, sizeof(float) * 2);
+	}
+	bot->explorePos[0] = fPos[0] + fIndex[0]*MAP_RES;
+	bot->explorePos[1] = fPos[1] - fIndex[1]*MAP_RES;
 }
 
 char Bot_Detect_Collision(struct Bot * bot) {
 	// check for collision
-	if (bot->duty[0] + bot->duty[1] > 0 && bot->odo[0] + bot->odo[1] == 0) bot->collideCount++;
+	if ((bot->uGoal[0] > V_REF && (bot->odo[0] + bot->odo[1]) == 0) || (fabs(bot->uGoal[1]) > W_REF && fabs(bot->imu[2] < W_REF / 2))) bot->collideCount++;
 	else bot->collideCount = 0;
 	if (bot->collideCount >= MAX_COL_COUNT) {
 		bot->collideCount = 0;
@@ -369,30 +434,58 @@ void Bot_Display_Status(struct Bot * bot) {
 }
 
 void Bot_Display_Map(struct Bot * bot) {
-	OLED_FillDisplay();
+	OLED_ClearDisplay();
+	OLED_FillRectangle(0, 0, 4*MAP_UNITS, 4*MAP_UNITS, WHITE);
 	for (uint8_t i = 0; i < MAP_UNITS; i++) {
 		for (uint8_t j = 0; j < MAP_UNITS; j++) {
-			if (bot->map->grid[i][j] < 0.5) OLED_FillRectangle(2*i, 2*j, 2*i+2, 2*j+2, BLACK); 
+			if (bot->map->grid[i][j] < LOG_PRIOR) OLED_FillRectangle(4*i, 4*j, 4*i+4, 4*j+4, BLACK); 
 		}
 	}
+	OLED_Write_Text(70, 0, "%.2f", bot->dist[0]);
+	OLED_Write_Text(70, 10, "%.2f", bot->dist[1]);
+	OLED_Write_Text(70 , 20, "%.2f", bot->dist[2]);
+	OLED_Write_Text(70, 30, "%d %.2f", bot->usCount, LOG_PRIOR);
 	OLED_Update();
 }
 
-void Bot_UART_Send_Status(struct Bot * bot) {
-    Bot_UART_Write(bot, 
-	    "\33[2J\33[H(%ds) Bot state: %d, battery: %.2f%%\r\n"
-	    "pos: (%.2f, %.2f, %.2f)\r\n"
-	    "duty: (%.2f, %.2f), odo: (%d, %d)\r\n"
-	    "imu: (%.2f, %.2f. %.2f)\r\n"
-	    "dist: (%.2f, %.2f, %.2f)\r\n"
-	    "bitMap: (%.2f, %.2f)\r\n",
-	    bot->time, bot->state, bot->battery,
-	    bot->pos[0], bot->pos[1], bot->pos[2] * 180.0 / M_PI,
-	    bot->duty[0], bot->duty[1], bot->odo[0], bot->odo[1],
-	    bot->imu[0], bot->imu[1], bot->imu[2],
-	    bot->dist[0], bot->dist[1], bot->dist[2],
-	    bot->map->pos[0], bot->map->pos[1]
+void Bot_UART_Status(struct Bot * bot) {
+    // clear screen: "\33[2J\33[H"
+	Bot_UART_Write(bot,
+			"t: %d\r\n"
+			"p: (%.2f, %.2f, %.f, %.2f, %.f)\r\n"
+			"i: (%.2f, %.2f, %.f)\r\n"
+			"o: (%.2f, %.2f)\r\n"
+			"u: (%.2f, %.2f)\r\n"
+			"dc: (%.2f, %.2f)\r\n"
+			"xp: (%.2f, %.2f, %.f, %.2f, %.f)\r\n"
+			"zp: (%.2f, %.2f, %.f, %.2f, %.f)\r\n"
+			"L: (%.2f)\r\n\n",
+			bot->time,
+			bot->pos[0], bot->pos[1], bot->pos[2]*180./M_PI, bot->pos[3], bot->pos[4]*180./M_PI,
+			bot->imu[0], bot->imu[1], bot->imu[2]*180./M_PI,
+			bot->odo[0], bot->odo[1],
+			bot->uGoal[0], bot->uGoal[1],
+			bot->duty[0], bot->duty[1],
+			bot->xp[0], bot->xp[1], bot->xp[2]*180./M_PI, bot->xp[3], bot->xp[4]*180./M_PI,
+			bot->zp[0], bot->zp[1], bot->zp[2]*180./M_PI, bot->zp[3], bot->zp[4]*180./M_PI,
+			UKF_L
     );
+}
+
+void Bot_UART_NodeQueue(struct Bot * bot, struct NodeQueue * queue) {
+	char msg[BUF_LEN];
+	snprintf(msg, BUF_LEN, "\r\nnode:\r\n");
+	unsigned int iter = queue->startIndex;
+	while (iter != queue->endIndex) {
+		if (queue->queue[iter]) snprintf(msg, BUF_LEN, "%s(%.2f, %.2f)\r\n", msg, queue->queue[iter]->posf[0], queue->queue[iter]->posf[1]);
+		iter = (iter + 1) % Q_LEN;
+	}
+	Bot_UART_Write(bot, msg);
+}
+
+void Bot_UART_Node(struct Bot * bot, struct Node * node) {
+	if (!node) Bot_UART_Write(bot, "null node\r\n");
+	else Bot_UART_Write(bot, "n: pi: (%d, %d), pf: (%.2f, %.2f), g: %.2f, h: %.2f\r\n", node->pos[0], node->pos[1], node->posf[0], node->posf[1], node->g, node->h);
 }
 
 void Bot_UART_Write(struct Bot * bot, char * format, ...) {
@@ -411,7 +504,7 @@ void Mat_Print(struct Bot * bot, uint8_t rows, uint8_t cols, float mat[rows][col
 	for (uint8_t i = 0; i < rows; i++) {
 		snprintf(msg, BUF_LEN, "%s{", msg);
 		for (uint8_t j = 0; j < cols; j++) {
-			snprintf(msg, BUF_LEN, "%s%.2f, ", msg, mat[i][j]);
+			snprintf(msg, BUF_LEN, "%s%.1f, ", msg, mat[i][j]);
 		}
 		snprintf(msg, BUF_LEN, "%s},\r\n", msg);
 	}
@@ -423,7 +516,7 @@ void Vec_Print(struct Bot * bot, uint8_t cols, float vec[cols], char * title) {
 	char msg[BUF_LEN];
 	snprintf(msg, BUF_LEN, "%s: {", title);
 	for (uint8_t i = 0; i < cols; i++)
-		snprintf(msg, BUF_LEN, "%s%.3f, ", msg, vec[i]);
+		snprintf(msg, BUF_LEN, "%s%.1f, ", msg, vec[i]);
 	snprintf(msg, BUF_LEN, "%s}\r\n", msg);
 	Bot_UART_Write(bot, msg);
 }

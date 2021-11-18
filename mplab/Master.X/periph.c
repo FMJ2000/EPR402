@@ -41,7 +41,7 @@ void Init(unsigned char * buf) {
     INTCONSET = _INTCON_MVEC_MASK;
     IPC1 = 0xA;			// TMR1
     IPC3 = 0xA00000A;		// INT3, TMR3
-    IPC5 = 0xA00000A;		// TMR5, ADC1
+    IPC5 = 0xA00000F;		// TMR5, ADC1
     IPC8 = 0xA0000;		// CN
     //IPC10 = 0xA00;		// DMA1
     
@@ -58,8 +58,8 @@ void Init(unsigned char * buf) {
     
     /* Ultrasonic */
     TMR5 = 0x0;
-    PR5 = 0xFFFF;           // f = 15 Hz
-    T5CON = 0x80D0;         // gated time, 1:32 prescaler, TMR2 f = 1 MHz
+    PR5 = 0xFFFF;           // f = 7.62 Hz
+    T5CON = 0x80E0;         // gated time, 1:64 prescaler, TMR2 f = 500 kHz
     
     /* PWM */
     TMR3 = 0x0;

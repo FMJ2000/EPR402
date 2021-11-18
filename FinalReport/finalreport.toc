@@ -1,7 +1,7 @@
 \babel@toc {british}{}
 \contentsline {part}{Part 1. Preamble}{i}{}%
-\contentsline {part}{Part 2. Project definition: approved Project Proposal}{vii}{}%
-\contentsline {part}{Part 3. Main Report}{xvi}{}%
+\contentsline {part}{Part 2. Project definition: approved Project Proposal}{v}{}%
+\contentsline {part}{Part 3. Main Report}{xiv}{}%
 \contentsline {section}{\numberline {1}Literature study}{1}{}%
 \contentsline {subsection}{\numberline {1.1}Positioning and Mapping}{1}{}%
 \contentsline {subsection}{\numberline {1.2}Navigation}{2}{}%
@@ -36,7 +36,7 @@
 \contentsline {subsubsection}{\numberline {4.2.1}Localization}{30}{}%
 \contentsline {subsubsection}{\numberline {4.2.2}Mapping}{33}{}%
 \contentsline {subsubsection}{\numberline {4.2.3}Control}{38}{}%
-\contentsline {subsubsection}{\numberline {4.2.4}Path planning}{43}{}%
+\contentsline {subsubsection}{\numberline {4.2.4}Path planning}{42}{}%
 \contentsline {subsubsection}{\numberline {4.2.5}Navigation}{43}{}%
 \contentsline {subsection}{\numberline {4.3}Simulations}{43}{}%
 \contentsline {subsection}{\numberline {4.4}Hardware Design and Implementation}{43}{}%

@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # distance
-da = 0.08
+da = 0.008
 dk = 0.4	
 dt = np.linspace(0.0, 0.9, 100)
 dx = (dk*dt) / (da + dt)

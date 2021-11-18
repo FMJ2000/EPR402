@@ -25,10 +25,12 @@ struct NodeQueue {
 	unsigned int endIndex;
 };
 
+void NodeQueue_Destroy(struct NodeQueue * queue);
 char NodeQueue_Add(struct NodeQueue * queue, struct Node * node);
-struct Node * NodeQueue_Remove(struct NodeQueue * queue, unsigned int index);
+void NodeQueue_Remove(struct NodeQueue * queue, struct Node ** node, unsigned int index);
 char NodeQueue_Empty(struct NodeQueue * queue);
 int NodeQueue_Contains(struct NodeQueue * queue, int pos[2]);
 unsigned int NodeQueue_Best(struct NodeQueue * queue);
+
 
 #endif

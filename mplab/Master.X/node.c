@@ -1,26 +1,36 @@
 #include "node.h"
 
+void NodeQueue_Destroy(struct NodeQueue * queue) {
+	for (unsigned int i = 0; i < Q_LEN; i++) {
+		if (queue->queue[i]) {
+			free(queue->queue[i]);
+			queue->queue[i] = NULL;
+		}
+	}
+}
+
 // add node to end of queue
 char NodeQueue_Add(struct NodeQueue * queue, struct Node * node) {
 	if (!queue) return 0;
 	// check if queue is full
 	if ((queue->endIndex + 1) % Q_LEN == queue->startIndex) return 0;
-	queue->queue[queue->endIndex] = node;
+	queue->queue[queue->endIndex] = malloc(sizeof *queue->queue[queue->endIndex]);
+	memcpy(queue->queue[queue->endIndex], node, sizeof(struct Node));
 	queue->endIndex = (queue->endIndex + 1) % Q_LEN;
 	return 1;
 }
 
 // remove node at position and shift nodes up
-struct Node * NodeQueue_Remove(struct NodeQueue * queue, unsigned int index) {
-	if (!queue || index < 0 || index >= Q_LEN || !queue->queue[index]) return NULL;
-	struct Node * returnNode = queue->queue[index];
-	unsigned int amount = (index > queue->startIndex) ? index - queue->startIndex : Q_LEN - (queue->startIndex - index);
-	for (unsigned int i = 0; i < amount; i++) {
-		unsigned int newIndex = (index > 0) ? index - 1 : Q_LEN - 1;
-		queue->queue[index] = queue->queue[newIndex];
+void NodeQueue_Remove(struct NodeQueue * queue, struct Node ** node, unsigned int index) {
+	if (!queue || index < 0 || index >= Q_LEN || !queue->queue[index]) return;
+	*node = queue->queue[index];
+	unsigned int iter = index, newIter;
+	while (iter != queue->startIndex) {
+		newIter = (iter > 0) ? iter - 1 : Q_LEN - 1;
+		queue->queue[iter] = queue->queue[newIter];
+		iter = newIter;
 	}
 	queue->startIndex = (queue->startIndex + 1) % Q_LEN;
-	return returnNode;
 }
 
 char NodeQueue_Empty(struct NodeQueue * queue) {
@@ -44,10 +54,12 @@ unsigned int NodeQueue_Best(struct NodeQueue * queue) {
 	float bestf = 10000;
 
 	for (unsigned int i = 0; i < Q_LEN; i++) {
-		float f = queue->queue[i]->g + queue->queue[i]->h;
-		if (f < bestf) {
-			bestf = f;
-			bestIndex = i;
+		if (queue->queue[i]) {
+			float f = queue->queue[i]->g + queue->queue[i]->h;
+			if (f < bestf) {
+				bestf = f;
+				bestIndex = i;
+			}
 		}
 	}
 

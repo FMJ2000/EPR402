@@ -64,6 +64,8 @@ int main() {
 	OLED_ClearDisplay();
 	OLED_Write_Text(0, 0, "imu %d, mag %d", whoami[0], whoami[1]);
 	OLED_Update();
+	
+	Bot_UART_Write(bot, "Bot init...\r\n\n");
 
 	for (;;);
 	return EXIT_SUCCESS;
@@ -88,13 +90,14 @@ void __ISR(_TIMER_1_VECTOR, IPL2SOFT) TMR1_IntHandler() {
 	
 	Bot_Pos_IMU(bot);		// imu pos update @ 40 Hz
 	Bot_Motor_Control(bot);
+	//Bot_UART_Status(bot);
 	
 	if (bot->count % 10 == 0) {
 		Bot_Pos_Odo(bot);		// odo pos update @ 4 Hz
-		bot->usState = 0;
-		Ultrasonic_Trigger();
-		//Bot_Display_Status(bot);
-		Bot_Display_Map(bot);
+		Bot_Pos_Control(bot);
+		Ultrasonic_Trigger();	// distance reading @ 2 Hz
+		Bot_Display_Status(bot);
+		//Bot_Display_Map(bot);
 	}
 
 	if (bot-> count % FREQ == 0) {
@@ -102,6 +105,7 @@ void __ISR(_TIMER_1_VECTOR, IPL2SOFT) TMR1_IntHandler() {
 		bot->count = 0;
 		bot->dblClickCount = (bot->time % 2) ? 0 : bot->dblClickCount;
 		AD1CON1SET = _AD1CON1_SAMP_MASK;
+		
 
 		if (bot->time == 3) {
 			for (uint8_t i = 0; i < 3; i++) bot->bias[i] /= bot->numBias;
@@ -112,16 +116,16 @@ void __ISR(_TIMER_1_VECTOR, IPL2SOFT) TMR1_IntHandler() {
 }
 
 /* Ultrasonic echo timer */
-void __ISR(_TIMER_5_VECTOR, IPL2SOFT) TMR5_IntHandler() {
+void __ISR(_TIMER_5_VECTOR, IPL3SOFT) TMR5_IntHandler() {
 	IFS0CLR = _IFS0_T5IF_MASK;
-	bot->dist[bot->usState] = TMR5 * SOUND_SPEED;
+	bot->dist[bot->usState++] = TMR5 * SOUND_SPEED;
+	bot->usCount++;
 	TMR5 = 0;
 
 	// check if all readings taken, update map 
-	if (bot->usState++ == US_SENSORS) {
-		Bot_Map_Update(bot);
-		Bot_Navigate(bot);
+	if (bot->usState == US_SENSORS) {
 		bot->usState = 0;
+		Bot_Map_Update(bot);
 	}
 }
 

@@ -917,6 +917,14 @@ where $K_c$ represents the hardware defined upper velocity limit, and $K_a$ is a
 \subsubsection{Path planning}
 \label{sec:path-plan}
 
+\textbf{Configuration space}
+
+Abstracting another layer we enter the domain of path planning. The goal of this subsystem is to generate and maintain a viable route to a exploration goal which is aimed at maximum information and discussed in section \ref{sec:navigation}. For now, we can assume the goal position has been set, but is potential on the other side of obstructed space. 
+
+The motor and position controllers operate in state space, in other words both controllers gather and manipulate states that corresponds to the internal cartesian world map of the system. This is of course convenient when working with Euclidean distances and relative angles as is abundant in those subsystems. However, abstracting another layer to the point where mapping information becomes relevant, a new operating space is necessary to keep the problem small and tractable. The occupancy grid map used by the mapping subsystem gives a hint of what is necessary for planning, but at least two problems arise from simply using the occupancy map in path planning algorithms, including that the physical properties of the robot, such as its width and length are not taken into account.
+
+To see why this is a potential problem, consider the robot planning a path to the goal in Figure \ref{fig:}
+
 \subsubsection{Navigation}
 \label{sec:navigation}
 
