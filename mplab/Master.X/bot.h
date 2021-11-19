@@ -28,18 +28,18 @@
 #define SIGMA_Q 0.9
 #define SIGMA_R 0.05
 #define K_OLD 0
-#define W_ODO 0.2779523
+#define W_ODO 0.6265023354055452
 
 // controller
 #define PWM_T 0xFFF
-#define PWM_V 64
+#define PWM_V 32
 #define WHEEL_R 0.032
 #define WHEEL_HOLES 20.0
 #define CHASSIS_L 0.15
 #define K_DO 0.36
 #define K_DA 0.02
-#define K_RO 0.8
-#define K_RA 0.8
+#define K_RO 0.9
+#define K_RA 0.5
 #define K_DP 0.8
 #define K_DI 0.002
 #define K_DD 0.002
@@ -161,6 +161,7 @@ struct Bot {
 void Bot_Init(struct Bot ** bot, float pos[3]);
 void Bot_Map_Required(struct Bot * bot);
 void Bot_Map_Update(struct Bot * bot);
+uint8_t Bot_Map_View(struct Bot * bot);
 
 void Bot_Bias(struct Bot * bot);
 void Bot_Pos_IMU(struct Bot * bot);

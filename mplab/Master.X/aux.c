@@ -26,7 +26,7 @@ void distanceToPos(float result[][2], float botPos[3], float sensorOffsets[3], f
 	}
 }
 
-void delay(long us) {
+void delay(long long us) {
 	long count = us * SYSCLK / 16000000;
 	while (count--);
 }

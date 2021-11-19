@@ -100,7 +100,7 @@ void __ISR(_TIMER_1_VECTOR, IPL3SOFT) TMR1_IntHandler() {
 	}
 	
 	if (bot->count % 10 == 0) {
-		//Ultrasonic_Trigger();	// distance reading @ 2 Hz
+		Ultrasonic_Trigger();	// distance reading @ 2 Hz
 		if ((bot->state & STATE_MASK) == FINISH) LATAINV = _LATA_LATA1_MASK;
 	}
 
@@ -108,12 +108,12 @@ void __ISR(_TIMER_1_VECTOR, IPL3SOFT) TMR1_IntHandler() {
 		bot->time++;
 		bot->count = 0;
 		bot->dblClickCount = 0;
-		//AD1CON1SET = _AD1CON1_SAMP_MASK;
+		AD1CON1SET = _AD1CON1_SAMP_MASK;
 		
 		if (bot->time == 3) {
 			for (uint8_t i = 0; i < 3; i++) bot->bias[i] /= bot->numBias;
 			bot->bias[2] *= M_PI / 180.0;
-			bot->state = (bot->state & ~STATE_MASK) | NAVIGATE;
+			bot->state = (bot->state & ~STATE_MASK) | IDLE;
 		}
 		
 		
@@ -149,6 +149,7 @@ void __ISR(_CHANGE_NOTICE_VECTOR, IPL2SOFT) CNB_IntHandler() {
 		char newState = ((bot->state & STATE_MASK) == IDLE) ? NAVIGATE : IDLE;
 		bot->state = (bot->state & ~STATE_MASK) | newState;
 		bot->dblClickCount = 1;
+		Bot_UART_Write(bot, "Bot state: %d\r\n", bot->state);
 	}
 	/*if (!(PORTB & 0x20)) {
 		 button press occured 

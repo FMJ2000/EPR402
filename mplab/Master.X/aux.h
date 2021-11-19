@@ -9,7 +9,7 @@ float getAngle(float pos1[3], float pos2[2]);
 float normAngle(float x);
 float getDistance(float pos1[2], float pos2[2]);
 void distanceToPos(float result[][2], float botPos[3], float sensorOffsets[3], float * distances);
-void delay(long us);
+void delay(long long us);
 
 // Matrix equations
 void Mat_T(uint8_t rows, uint8_t cols, float result[cols][rows], float mat[rows][cols]);
