@@ -14,9 +14,9 @@
 #include "imu.h"
 
 #define DT_IMU 0.05         // 20 Hz
-#define DT_ODO 0.25			// 4 Hz
-#define F_IMU 20.0
-#define F_ODO 4.0
+#define DT_ODO 0.05			// 4 Hz
+#define F_IMU 20
+#define F_ODO 20
 
 // ukf
 #define UKF_A 1e-1
@@ -27,30 +27,33 @@
 #define UKF_L (float)UKF_A*UKF_A * (UKF_N + UKF_K) - UKF_N
 #define SIGMA_Q 0.9
 #define SIGMA_R 0.05
-#define K_OLD 0.
+#define K_OLD 0
+#define W_ODO 0.2779523
 
 // controller
 #define PWM_T 0xFFF
-#define PWM_V 48
+#define PWM_V 64
 #define WHEEL_R 0.032
 #define WHEEL_HOLES 20.0
 #define CHASSIS_L 0.15
-#define K_DO 0.18
+#define K_DO 0.36
 #define K_DA 0.02
-#define K_RO 0.15
+#define K_RO 0.8
 #define K_RA 0.8
-#define K_DP 0.6
+#define K_DP 0.8
 #define K_DI 0.002
 #define K_DD 0.002
-#define K_RP 0.2
+#define K_RP 0.8
 #define K_RI 0.0002
 #define K_RD 0.001
 #define K_UV 0.2
 #define K_UW 0.2
 #define MIN_GOAL_DIST 0.1
-#define MIN_DC 0.1
+#define MIN_DC 0.08
 #define INTEGRAL_LEN 40
-#define TURN_REF 0.3490659
+#define TURN_REF 0.6981318
+#define TURN_CONST 0.13
+#define FORWARD_CONST 0.18
 
 // path planning
 #define MAX_COL_COUNT 5
@@ -73,7 +76,7 @@
 #define INIT 0
 #define IDLE 1
 #define NAVIGATE 2
-#define BATTERY 3
+#define FINISH 3
 #define STATE_MASK 0x3
 
 // battery
@@ -96,6 +99,7 @@ static const int bPosMod[8][2] = {
 struct Bot {
 	// state
 	float pos[UKF_N];						// x, y, rot, v, w
+    float opos[UKF_N];
     float ePos[2];
 	float xp[UKF_N];						// mean of estimate
 	float zp[UKF_N];						// mean of measurement
@@ -118,7 +122,10 @@ struct Bot {
 	// sensors
 	float dist[3];							// latest distance readings
 	float imu[3];								// imu reading: ax, ay, gz
-	float odo[2];								// odometry reading
+	float odoArr[F_ODO][2];								// odometry reading
+    float odo[2];
+    uint8_t odoIndex;
+    float wOdo[F_ODO];
 	uint8_t usState;
     unsigned int usCount;
 
@@ -130,6 +137,7 @@ struct Bot {
 	uint8_t ePosIndex;
 	float duty[2];							// duty cycle
 	float uGoal[2];							// desired velocity input to motor control
+    float terrainMod;
 
 	// planning
 	uint8_t collideCount;
@@ -163,6 +171,7 @@ void Bot_UKF_Mean(uint8_t rows, float result[rows], float X[UKF_T][rows]);
 void Bot_UKF_Cov(uint8_t rows, float result[rows][rows], float X[UKF_T][rows], float m[rows]);
 void Bot_UKF_Update(struct Bot * bot, float weight);
 
+void Bot_Goal_Queue(struct Bot * bot, uint8_t len, float queue[len][2]);
 void Bot_Motion_Model(float (*x)[5], float dt);
 void Bot_Motor_Control(struct Bot * bot);
 void Bot_Pos_Control(struct Bot * bot);

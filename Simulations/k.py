@@ -13,14 +13,16 @@ rk = 0.15
 rt = np.linspace(-np.pi, np.pi, 100)
 rx = (rk*rt) / (ra + np.abs(rt))
 
+dxx = (1 - rx**2 / rk**2) * (dk*0.2) / (da + 0.2)
+
 fig, axes = plt.subplots(1, 2, figsize=(10,5))
-axes[0].plot(dt, dx)
+axes[0].plot(rt, dxx)
 axes[0].grid()
 axes[0].set_title('desired velocity given error distance')
 axes[0].set_ylabel('velocity')
 axes[0].set_xlabel('error distance')
 
-axes[1].plot(rt, rx)
+axes[1].plot(dt, dx)
 axes[1].grid()
 axes[1].set_title('desired angular rate given error angle')
 axes[1].set_ylabel('angular rate')

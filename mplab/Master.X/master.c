@@ -84,7 +84,7 @@ void SYS_Lock() {
 /* Interrupt functions */
 
 /* Sample timer */
-void __ISR(_TIMER_1_VECTOR, IPL2SOFT) TMR1_IntHandler() {
+void __ISR(_TIMER_1_VECTOR, IPL3SOFT) TMR1_IntHandler() {
 	IFS0CLR = _IFS0_T1IF_MASK;
 	bot->count++;
 	
@@ -94,29 +94,29 @@ void __ISR(_TIMER_1_VECTOR, IPL2SOFT) TMR1_IntHandler() {
 	//Bot_UART_Status(bot);
 	
 	if (bot->count % 5 == 0) {
-		Bot_Pos_Odo(bot);		// odo pos update @ 4 Hz
+		//Bot_Pos_Odo(bot);		// odo pos update @ 4 Hz
 		Bot_Display_Status(bot);
-		
 		//Bot_Display_Map(bot);
 	}
 	
 	if (bot->count % 10 == 0) {
-		Ultrasonic_Trigger();	// distance reading @ 2 Hz
-		
+		//Ultrasonic_Trigger();	// distance reading @ 2 Hz
+		if ((bot->state & STATE_MASK) == FINISH) LATAINV = _LATA_LATA1_MASK;
 	}
 
 	if (bot-> count % FREQ == 0) {
 		bot->time++;
 		bot->count = 0;
-		bot->dblClickCount = (bot->time % 2) ? 0 : bot->dblClickCount;
-		AD1CON1SET = _AD1CON1_SAMP_MASK;
+		bot->dblClickCount = 0;
+		//AD1CON1SET = _AD1CON1_SAMP_MASK;
 		
-
 		if (bot->time == 3) {
 			for (uint8_t i = 0; i < 3; i++) bot->bias[i] /= bot->numBias;
 			bot->bias[2] *= M_PI / 180.0;
 			bot->state = (bot->state & ~STATE_MASK) | NAVIGATE;
 		}
+		
+		
 	}
 }
 
@@ -135,7 +135,7 @@ void __ISR(_TIMER_5_VECTOR, IPL3SOFT) TMR5_IntHandler() {
 }
 
 /* Battery sampler */
-void __ISR(_ADC_VECTOR, IPL2SOFT) ADC_IntHandler() {
+void __ISR(_ADC_VECTOR, IPL1SOFT) ADC_IntHandler() {
 	if (IFS0bits.AD1IF) {
 		IFS0CLR = _IFS0_AD1IF_MASK;
 		bot->battery = (((ADC1BUF0 >> 8) & 0xFF) - ADC_MIN) * ADC_SCALE;
@@ -145,23 +145,27 @@ void __ISR(_ADC_VECTOR, IPL2SOFT) ADC_IntHandler() {
 /* User */
 void __ISR(_CHANGE_NOTICE_VECTOR, IPL2SOFT) CNB_IntHandler() {
 	IFS1CLR = _IFS1_CNBIF_MASK;
-	if (bot->portCN && !(PORTB & 0x20)) {
-		/* button press occured */
+	if (!bot->dblClickCount) {
+		char newState = ((bot->state & STATE_MASK) == IDLE) ? NAVIGATE : IDLE;
+		bot->state = (bot->state & ~STATE_MASK) | newState;
+		bot->dblClickCount = 1;
+	}
+	/*if (!(PORTB & 0x20)) {
+		 button press occured 
 	    //if (bot->dblClickCount == 0) {
 		//bot->dblClickCount++;
 		char newState = ((bot->state & STATE_MASK) == IDLE) ? NAVIGATE : IDLE;
 		bot->state = (bot->state & ~STATE_MASK) | newState;
-		bot->portCN = 1;
-		return;
 	    //}
 	    
+		/*
 	    free(bot);
 	    SYS_Unlock();
 	    RSWRSTSET = 1;
 	    volatile int * p = &RSWRST;
 	    *p;
 	    while (1);
-	}
+	}*/
 }
 
 void __ISR(_DMA1_VECTOR, IPL2SOFT) DMA_IntHandler() {

@@ -159,15 +159,14 @@ char Map_Frontier(struct Map * map, float pos[3], uint8_t frontier[2]) {
 	if (fIndex == 0) return 0;
 	float minAngle = M_PI;
 	for (int i = 0; i < fIndex; i++) {
-		float angle = atan2(frontiers[i][1] - pos[1], frontiers[i][0] - pos[0]) - pos[2];
-		float distance = getDistance(frontiers[i], pos);
-		if (fabs(angle) < minAngle && distance > 5) {
+		float fpos[2] = { map->pos[0] + frontiers[i][0]*MAP_RES, map->pos[1] - frontiers[i][1]*MAP_RES };
+		float angle = atan2(fpos[1] - pos[1], fpos[0] - pos[0]) - pos[2];
+		float distance = getDistance(fpos, pos);
+		if (fabs(angle) < fabs(minAngle)) {
 			minAngle = angle;
 			frontier[0] = frontiers[i][0];
 			frontier[1] = frontiers[i][1];
 		}
 	}
-	frontier[0] = frontiers[0][0];
-	frontier[1] = frontiers[0][1];
 	return 1;
 }

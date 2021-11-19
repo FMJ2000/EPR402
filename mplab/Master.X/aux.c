@@ -1,11 +1,12 @@
 #include "aux.h"
 
 /* Helper functions */
-float getAngle(float pos1[2], float pos2[2]) {
+float getAngle(float pos1[3], float pos2[2]) {
     /*float angle = acos((pos1[0]*pos2[0] + pos1[1]*pos2[1]) / (sqrt(pos1[0]*pos1[0] + pos1[1]*pos1[1]) * sqrt(pos2[0]*pos2[0] + pos2[1]*pos2[1])));
     if (isnanf(angle)) return 0.0;
     return angle;	   */
-	return atan2(pos2[1] - pos1[1], pos2[0] - pos1[0]);
+	float denom = (pos2[0] == pos1[0]) ? 0.001 : pos2[0] - pos1[0];
+	return normAngle(atan2(pos2[1] - pos1[1], denom) - pos1[2]);
 }
 
 float normAngle(float x) {

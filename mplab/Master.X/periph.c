@@ -39,9 +39,9 @@ void Init(unsigned char * buf) {
     /* Interrupts */
     __builtin_disable_interrupts();
     INTCONSET = _INTCON_MVEC_MASK;
-    IPC1 = 0xA;			// TMR1
+    IPC1 = 0xE;			// TMR1
     IPC3 = 0xA00000A;		// INT3, TMR3
-    IPC5 = 0xA00000F;		// TMR5, ADC1
+    IPC5 = 0x500000F;		// TMR5, ADC1
     IPC8 = 0xA0000;		// CN
     //IPC10 = 0xA00;		// DMA1
     

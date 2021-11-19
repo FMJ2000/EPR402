@@ -5,7 +5,7 @@
 #include "bot.h"
 
 /* helper functions */
-float getAngle(float pos1[2], float pos2[2]);
+float getAngle(float pos1[3], float pos2[2]);
 float normAngle(float x);
 float getDistance(float pos1[2], float pos2[2]);
 void distanceToPos(float result[][2], float botPos[3], float sensorOffsets[3], float * distances);
