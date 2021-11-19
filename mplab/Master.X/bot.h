@@ -27,7 +27,7 @@
 #define UKF_L (float)UKF_A*UKF_A * (UKF_N + UKF_K) - UKF_N
 #define SIGMA_Q 0.9
 #define SIGMA_R 0.05
-#define K_OLD 0
+#define K_OLD 0.5
 #define W_ODO 0.6265023354055452
 
 // controller
@@ -63,7 +63,8 @@
 #define NAV_SQRT 0.339411
 #define MIN_SEARCH_GOAL 0.17
 #define GOAL_LEN 256
-#define MAX_SEARCH_ITER 4096
+#define MAX_SEARCH_ITER 256
+#define MIN_OBST_DIST 0.03
 
 // sensors
 #define SOUND_SPEED 3.3e-4              // TMR5*SOUND_SPEED for distance

@@ -18,10 +18,11 @@ void Bot_Init(struct Bot ** bot, float pos[3]) {
 		(*bot)->wOdo[i] = W_ODO / ((i+1)*(i+1));
 	
 	// temporary configurations
-	float queue[1][2] = { {1.2, 0.} };//, {.3, .3,}, {0., .3}, {0., 0.} };
-	Bot_Goal_Queue(*bot, 1, queue);
+	float queue[4][2] = { {0.6, 0.0}, {0.6, 0.6}, {0., 0.6}, {0.0, 0.0} };
+	Bot_Goal_Queue(*bot, 4, queue);
 	//(*bot)->explorePos[0] = 2.0;
 	//*/
+	//(*bot)->explorePos[0] = 1.2;
 }
 
 // determine maps that form part of local map and create if necessary
@@ -110,7 +111,7 @@ void Bot_Pos_IMU(struct Bot * bot) {
 	
 	// speedy solution
 	bot->pos[3] = 0.5*WHEEL_R*PWM_V*(bot->duty[0] + bot->duty[1]);
-	bot->pos[4] = WHEEL_R*PWM_V*(bot->duty[0] - bot->duty[1]) / CHASSIS_L;
+	bot->pos[4] = bot->imu[2];//WHEEL_R*PWM_V*(bot->duty[0] - bot->duty[1]) / CHASSIS_L;
 	Bot_Motion_Model(&bot->pos, DT_IMU);
 	bot->opos[3] = 0.5*(bot->odo[1] + bot->odo[0]);
 	bot->opos[4] = (bot->odo[0] - bot->odo[1]) / CHASSIS_L;
@@ -337,7 +338,6 @@ void Bot_Pos_Control(struct Bot * bot) {
 	}
 
 	// check if new path needed
-	//if (Bot_Detect_Collision(bot)) Bot_Navigate(bot);
 	if (getDistance(bot->goal[bot->goalIndex], bot->pos) < MIN_GOAL_DIST) {
 		bot->goalIndex++;
 		if (bot->goalIndex == GOAL_LEN) {//Bot_Navigate(bot);
@@ -384,9 +384,15 @@ void Bot_Pos_Control(struct Bot * bot) {
 
 // A* search algorithm
 void Bot_Navigate(struct Bot * bot) {
+	// stop first as this might take a while
+	LATACLR = _LATA_LATA3_MASK;
+	LATBCLR = _LATB_LATB4_MASK;
+	OC5RS = 0x0;
+	OC4RS = 0x0;
+	
 	// check if new exploration point needed
 	//if (getDistance(bot->pos, bot->explorePos) < MIN_GOAL_DIST)
-	Bot_Explore(bot); 
+	//Bot_Explore(bot); 
 	
 	// build queues of nodes
 	struct NodeQueue openQueue = {0};
@@ -402,8 +408,8 @@ void Bot_Navigate(struct Bot * bot) {
 		
 		if (node) {
 			NodeQueue_Add(&closedQueue, node);
-			Bot_UART_Node(bot, node);
-			delay(10000l);
+			//Bot_UART_Node(bot, node);
+			//delay(10000l);
 			
 			// check if goalNode
 			if (node->h < MIN_SEARCH_GOAL) {
@@ -419,10 +425,15 @@ void Bot_Navigate(struct Bot * bot) {
 				char flag = NodeQueue_Contains(&closedQueue, newPosI);
 				if (NodeQueue_Contains(&closedQueue, newPosI) == -1) {
 					float newPosF[2] = { bot->pos[0] + NAV_STEP*newPosI[0], bot->pos[1] + NAV_STEP*newPosI[1] };
-					char fObs = Map_Pos_Collide(bot->map, newPosF);
-					uint8_t nIndex = 0;
-					while (fObs == -1 && nIndex < 8) fObs = Map_Pos_Collide(bot->map->neighbors[nIndex++], newPosF);
-					if (!fObs) {
+					char fObs = 0;
+					if (node->g < 0.6) {
+						fObs = Map_Pos_Collide(bot->map, newPosF);
+						uint8_t nIndex = 0;
+						while (fObs == -1 && nIndex < 8) fObs = Map_Pos_Collide(bot->map->neighbors[nIndex++], newPosF);
+						//Bot_UART_Write(bot, "fObs: %d\r\n", fObs);
+						//delay(10000l);
+					}
+					if (fObs < 1) {
 						int openIndex = NodeQueue_Contains(&openQueue, newPosI);
 						float cost = (i % 2 == 0) ? NAV_SQRT : NAV_STEP;
 						if (openIndex == -1) {
@@ -448,25 +459,28 @@ void Bot_Navigate(struct Bot * bot) {
 	NodeQueue_Destroy(&closedQueue);
 	
 	// path not found, calculate new explore pos then recursive
+	//Bot_UART_Write(bot, "path not found\r\n");
 	bot->state = (bot->state & ~STATE_MASK) | IDLE;
 	//Bot_Explore(bot);
 	//Bot_Navigate(bot);
 }
 
 void Bot_Backtrack(struct Bot * bot, struct Node * node) {
-	Bot_UART_Node(bot, node);
-	delay(1000000l);
+	//Bot_UART_Node(bot, node);
+	//delay(1000000l);
 	if (node == NULL) return;
 	bot->goalIndex = GOAL_LEN;
 	int count = 0;
 	while (node != NULL && bot->goalIndex >= 0) {
-		if (++count % 2) memcpy(bot->goal[--bot->goalIndex], node->posf, sizeof(float) * 2);
+		memcpy(bot->goal[--bot->goalIndex], node->posf, sizeof(float) * 2);
 		node = node->parent;
+		//Bot_UART_Node(bot, node);
+		//delay(10000l);
 	}
 	char msg[BUF_LEN];
-	for (int i = bot->goalIndex; i < GOAL_LEN; i++) snprintf(msg, BUF_LEN, "(%.2f, %.2f)\r\n%s", bot->goal[i][0], bot->goal[i][1], msg);
-	Bot_UART_Write(bot, msg);
-	delay(10000l);
+	for (int i = bot->goalIndex; i < GOAL_LEN; i++) snprintf(msg, BUF_LEN, "%s(%.2f, %.2f)\r\n", msg, bot->goal[i][0], bot->goal[i][1]);
+	//Bot_UART_Write(bot, msg);
+	//delay(10000l);
 }
 
 // choose a new exploration position to maximize information gain
@@ -499,6 +513,12 @@ char Bot_Detect_Collision(struct Bot * bot) {
 	if (bot->collideCount >= MAX_COL_COUNT) {
 		bot->collideCount = 0;
 		return 1;
+	}
+	
+	// check if ultrasonic readings too close
+	if (bot->pos[3] > 0.1) {
+		for (uint8_t i = 0; i < 3; i++)
+			if (bot->dist[i] < MIN_OBST_DIST) return 1;
 	}
 
 	// check for collision on trajectory - assuming constant velocity

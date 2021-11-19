@@ -21,7 +21,7 @@ void IMU_Read(float imu[3]) {
     uint8_t data[6];		// 9 sensor readings
     int16_t values[3];
     I2C_Read(MPU9250_AD, ACCEL_XOUT_H_AD, data, 4);
-    I2C_Read(MPU9250_AD, GYRO_XOUT_H_AD, &data[4], 2);
+    I2C_Read(MPU9250_AD, GYRO_ZOUT_H_AD, &data[4], 2);
     
     for (uint8_t i = 0; i < 3; i++) values[i] = (data[2*i] << 8) | data[2*i+1];
     imu[0] = (float)values[0] / ACCEL_SENS;

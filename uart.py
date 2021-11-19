@@ -1,6 +1,6 @@
 import serial
 
-ser = serial.Serial(port='/dev/rfcomm0', baudrate=9600)
+ser = serial.Serial(port='/dev/ttyUSB0', baudrate=115200)
 print(ser.name)
 ser.flushInput()
 
@@ -9,7 +9,7 @@ while True:
 	try:
 		ser_bytes = ser.readline()
 		#list_bytes = list(ser)
-		decoded_bytes = ser_bytes[0:len(ser_bytes)-2].decode("utf-8")
+		decoded_bytes = ser_bytes.decode("utf-8")
 		print(decoded_bytes)
 		'''
 		acc = [((data[2*i] << 8) | data[1+2*i]) for i in range(3)]

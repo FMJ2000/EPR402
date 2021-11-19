@@ -10,6 +10,11 @@
 #define PWR_MGMT_1_AD 0x6B
 #define ACCEL_XOUT_H_AD 0x3B
 #define GYRO_XOUT_H_AD 0x43
+#define GYRO_XOUT_L_AD 0x44
+#define GYRO_YOUT_H_AD 0x45
+#define GYRO_YOUT_L_AD 0x46
+#define GYRO_ZOUT_H_AD 0x47
+#define GYRO_ZOUT_L_AD 0x48
 #define EXT_SENS_DATA_00_AD 0x49
 #define ACCEL_CONFIG_1_AD 0x1C
 #define ACCEL_CONFIG_2_AD 0x1D

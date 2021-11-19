@@ -88,12 +88,12 @@ char Map_Contains(struct Map * map, float pos[2]) {
 // check if the location or surrounding is obstructed
 char Map_Pos_Collide(struct Map * map, float pos[2]) {
 	if (!map || !Map_Contains(map, pos)) return -1;
-	uint8_t index[2] = {(pos[0] - map->pos[0]) / MAP_RES, (map->pos[1] - pos[1]) / MAP_RES };
-	if (map->grid[index[0]][index[1]] >= 0.5) return 1;
+	uint8_t index[2] = {(uint8_t)((pos[0] - map->pos[0]) / MAP_RES), (uint8_t)((map->pos[1] - pos[1]) / MAP_RES) };
+	if (map->grid[index[0]][index[1]] > L_HIGH) return 1;
 	for (uint8_t i = 0; i < 8; i++) {
 		uint8_t newIndex[2] = { index[0] + posMod[i][0], index[1] + posMod[i][1] };
 		if (newIndex[0] >= 0 && newIndex[0] < MAP_UNITS && newIndex[1] >= 0 && newIndex[1] < MAP_UNITS) {
-			if (map->grid[newIndex[0]][newIndex[1]] >= 0.5) return 1;
+			if (map->grid[newIndex[0]][newIndex[1]] > L_HIGH) return 1;
 		}
 	}
 	return 0;

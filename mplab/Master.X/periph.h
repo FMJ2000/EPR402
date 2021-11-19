@@ -5,7 +5,7 @@
 #include "bot.h"
 
 #define I2C_BAUD 400000l
-#define UART_BAUD 9600l
+#define UART_BAUD 115200l
 #define UART_BRGH (int)(PBCLK / (4 * UART_BAUD) - 1)
 #define I2C_W 0x0
 #define I2C_R 0x1
