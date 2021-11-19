@@ -90,13 +90,18 @@ void __ISR(_TIMER_1_VECTOR, IPL3SOFT) TMR1_IntHandler() {
 	
 	Bot_Pos_IMU(bot);		// imu pos update @ 40 Hz
 	Bot_Pos_Control(bot);
+	/*if (bot->collideCount && Bot_Detect_Collision(bot)) {
+		LATAINV = _LATA_LATA1_MASK;
+		Bot_Navigate(bot);
+	}*/
+		
 	
 	//Bot_UART_Status(bot);
 	
 	if (bot->count % 5 == 0) {
-		//if (Bot_Detect_Collision(bot)) Bot_Navigate(bot);
 		//Bot_Pos_Odo(bot);		// odo pos update @ 4 Hz
 		Bot_Display_Status(bot);
+		Bot_UART_Status(bot);
 		//Bot_Display_Map(bot);
 	}
 	
@@ -109,16 +114,21 @@ void __ISR(_TIMER_1_VECTOR, IPL3SOFT) TMR1_IntHandler() {
 		bot->time++;
 		bot->count = 0;
 		bot->dblClickCount = 0;
+		
+		// check for collisions
+		/*if (Bot_Detect_Collision(bot)) {
+			LATAINV = _LATA_LATA1_MASK;
+			Bot_Navigate(bot);
+		}*/
+		
 		AD1CON1SET = _AD1CON1_SAMP_MASK;
 		
 		if (bot->time == 3) {
 			for (uint8_t i = 0; i < 3; i++) bot->bias[i] /= bot->numBias;
 			bot->bias[2] *= M_PI / 180.0;
-			//Bot_Navigate(bot);
 			bot->state = (bot->state & ~STATE_MASK) | NAVIGATE;
+			Bot_Navigate(bot);
 		}
-		
-		
 	}
 }
 

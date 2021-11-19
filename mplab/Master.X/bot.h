@@ -181,6 +181,8 @@ void Bot_Navigate(struct Bot * bot);
 void Bot_Backtrack(struct Bot * bot, struct Node * node);
 void Bot_Explore(struct Bot * bot);
 char Bot_Detect_Collision(struct Bot * bot);
+char Bot_Path_Collision(struct Bot * bot);
+void Bot_Quick_Reverse(struct Bot * bot);
 
 void Bot_Display_Status(struct Bot * bot);
 void Bot_Display_Map(struct Bot * bot);
