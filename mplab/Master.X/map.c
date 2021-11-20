@@ -50,13 +50,13 @@ void Map_Reinforce(struct Map * map) {
 void Map_Update(struct Map * map, float pos[3], float dist[US_SENSORS]) {
 	if (!map) return;
 	// calculate robot sensor angles
-	float sensorAngles[US_SENSORS] = { normAngle(pos[2] + SENSOR_O), pos[2], normAngle(pos[2] - SENSOR_O) };
+	float sensorAngles[US_SENSORS] = { SENSOR_O, 0, -SENSOR_O };//{ normAngle(pos[2] + SENSOR_O), pos[2], normAngle(pos[2] - SENSOR_O) };
 
 	// iterate through map and update if visible
 	for (uint8_t i = 0; i < MAP_UNITS; i++) {
 		for (uint8_t j = 0; j < MAP_UNITS; j++) {
-			float cellPos[2] = { map->pos[0] + i*MAP_RES - pos[0], map->pos[1] - j*MAP_RES };
-			float cellAngle = atan2(cellPos[1], cellPos[0]);
+			float cellPos[2] = { map->pos[0] + i*MAP_RES, map->pos[1] - j*MAP_RES };
+			float cellAngle = getAngle(pos, cellPos);
 			for (uint8_t k = 0; k < US_SENSORS; k++) {
 				if (fabs(sensorAngles[k] - cellAngle) <= SENSOR_A) {
 					Map_Cell_Update(&map->grid[i][j], getDistance(cellPos, pos), dist[k]);

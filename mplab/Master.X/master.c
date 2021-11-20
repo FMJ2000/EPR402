@@ -101,7 +101,7 @@ void __ISR(_TIMER_1_VECTOR, IPL3SOFT) TMR1_IntHandler() {
 	if (bot->count % 5 == 0) {
 		//Bot_Pos_Odo(bot);		// odo pos update @ 4 Hz
 		Bot_Display_Status(bot);
-		Bot_UART_Status(bot);
+		//Bot_UART_Status(bot);
 		//Bot_Display_Map(bot);
 	}
 	
@@ -123,7 +123,7 @@ void __ISR(_TIMER_1_VECTOR, IPL3SOFT) TMR1_IntHandler() {
 		
 		AD1CON1SET = _AD1CON1_SAMP_MASK;
 		
-		if (bot->time == 3) {
+		if (bot->time == 20) {
 			for (uint8_t i = 0; i < 3; i++) bot->bias[i] /= bot->numBias;
 			bot->bias[2] *= M_PI / 180.0;
 			bot->state = (bot->state & ~STATE_MASK) | NAVIGATE;

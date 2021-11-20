@@ -340,13 +340,16 @@ void Bot_Pos_Control(struct Bot * bot) {
 
 	// check if new path needed
 	if (getDistance(bot->goal[bot->goalIndex], bot->pos) < MIN_GOAL_DIST) {
+		bot->state = (bot->state & ~STATE_MASK) | IDLE;
+		Bot_Motor_Control(bot);
 		bot->goalIndex++;
+		Bot_UART_Map(bot);
+		bot->state = (bot->state & ~STATE_MASK) | NAVIGATE;
 		if (bot->goalIndex == GOAL_LEN) {//Bot_Navigate(bot);
 			bot->state = (bot->state & ~STATE_MASK) | FINISH;
 			Bot_Motor_Control(bot);
 		} else if (Bot_Path_Collision(bot)) Bot_Navigate(bot);
 		else Bot_UART_Write(bot, "new pos: (%.2f, %.2f)\r\n", bot->goal[bot->goalIndex][0], bot->goal[bot->goalIndex][1]);
-		//Bot_UART_Map(bot);
 		return;
 	}
 
@@ -479,8 +482,8 @@ void Bot_Backtrack(struct Bot * bot, struct Node * node) {
 	while (node->parent != NULL && bot->goalIndex >= 0) {
 		memcpy(bot->goal[--bot->goalIndex], node->posf, sizeof(float) * 2);
 		node = node->parent;
-		Bot_UART_Node(bot, node);
-		delay(100000l);
+		//Bot_UART_Node(bot, node);
+		//delay(100000l);
 	}
 	char msg[BUF_LEN] = "[";
 	for (int i = bot->goalIndex; i < GOAL_LEN; i++) snprintf(msg, BUF_LEN, "%s[%.2f, %.2f],\r\n", msg, bot->goal[i][0], bot->goal[i][1]);
