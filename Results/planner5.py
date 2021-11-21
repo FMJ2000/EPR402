@@ -15,28 +15,31 @@ startPos = [[-0.64, 0.64],
 	[0.64, 0.64],
 	[0.64, 0.64]]
 res = 0.08
+mapSize = 1.28
 
 def pos_plot(pos):
-	plt.plot(pos[0], pos[1], c='r', marker='.', markersize=50, label='bot')
+	plt.scatter(pos[0], pos[1], c='b', marker='.', s=400, label='bot', zorder=20)
 
 def map_plot(map, index):
 	title = str(index + 1) if index >= 0 else "summary"
-	index = 0 if index < 0 else index
+	if index < 0:
+		index = 0
+	else:
+		plt.xlim(startPos[index][0] - 0.04, startPos[index][0] + mapSize + 0.04)
+		plt.ylim(startPos[index][1] - mapSize - 0.04, startPos[index][1] + 0.04)
 	for i in range(len(map)):
 		for j in range(len(map[0])):
 			plt.scatter(startPos[index][0] + i*res, startPos[index][1] - j*res, c=str(1/(1+np.exp(map[i][j]))))
 	plt.title(f'Robot planning path around obstacle - map {title}')
 	plt.xlabel('x (m)')
 	plt.ylabel('y (m)')
+
 	plt.grid()
 
 def path_plot(path):
-	print(path)
-
-	plt.scatter(path[0][0], path[0][1], c='darkred', s=50, label='init pos', zorder=10)
 	plt.scatter(path[-1][0], path[-1][1], c='orange', s=50, label='final pos', zorder=10)
 	plt.plot(path[:,0], path[:,1], c='r', marker='.', markersize=20, label='path')
-	plt.legend()
+
 
 def paths():
 	pos = [
@@ -52,6 +55,52 @@ def paths():
 		[0.83, 0.15],
 		[0.99, 0.02],
 		[1.13, -0.00]
+	]
+
+	path = [
+		[[0.15, 0.00],
+		[0.30, 0.15],
+		[0.45, 0.30],
+		[0.60, 0.30]
+		],
+		[[0.15, 0.00],
+		[0.30, 0.15],
+		[0.45, 0.30],
+		[0.60, 0.30]
+		],
+		[[0.30, 0.15],
+		[0.45, 0.30],
+		[0.60, 0.30]
+		],
+		[[0.45, 0.30],
+		[0.60, 0.30]
+		],
+		[[0.60, 0.30]
+		],
+		[[0.66, 0.27],
+		[0.81, 0.12],
+		[0.96, -0.03],
+		],
+		[[0.72, 0.27],
+		[0.87, 0.12],
+		[1.02, -0.03],
+		],
+		[[0.77, 0.12],
+		[0.92, 0.12],
+		[1.07, -0.03],
+		[1.22, -0.03]
+		],
+		[[0.92, 0.12],
+		[1.07, -0.03],
+		[1.22, -0.03]
+		],
+		[[1.07, -0.03],
+		[1.22, -0.03]
+		],
+		[[1.22, -0.03]
+		],
+		[[1.13, -0.00],
+		]
 	]
 	
 	maps = [
@@ -265,14 +314,13 @@ def paths():
 	print(len(pos))
 	print(len(maps))
 
-	'''
 	for i in range(len(maps)):
 		plt.figure(figsize=(5,5))
 		map_plot(maps[i], i)
+		path_plot(np.concatenate(([pos[i]], path[i])))
 		pos_plot(pos[i])
-		#path_plot(np.array(path[i]))
+		plt.legend(loc='lower left')
 		plt.savefig(f'Figures/planner{i}.png', format='png')
-	'''
 
 	full = np.concatenate((maps[7], maps[11]))
 	plt.figure(figsize=(10,5))
