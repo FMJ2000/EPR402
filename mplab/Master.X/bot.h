@@ -59,12 +59,13 @@
 #define MAX_COL_COUNT 5
 #define V_REF 0.1
 #define W_REF 0.2
-#define NAV_STEP 0.24
-#define NAV_SQRT 0.339411
-#define MIN_SEARCH_GOAL 0.17
+#define NAV_STEP 0.15
+#define NAV_SQRT 0.21213203
+#define MIN_SEARCH_GOAL 0.11
 #define GOAL_LEN 256
-#define MAX_SEARCH_ITER 256
+#define MAX_SEARCH_ITER 512
 #define MIN_OBST_DIST 0.03
+#define VISIT_COST 0.5
 
 // sensors
 #define SOUND_SPEED 3.3e-4              // TMR5*SOUND_SPEED for distance

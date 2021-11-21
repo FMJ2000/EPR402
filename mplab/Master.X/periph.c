@@ -53,7 +53,7 @@ void Init(unsigned char * buf) {
     
     /* Sampling timer */
     TMR1 = 0x0;
-    PR1 = TMR1_PR;		// f = 40 Hz
+    PR1 = TMR1_PR;		// f = 20 Hz
     T1CON = 0x8020;		// 1:64 prescaler = 500 kHz (reset to 0x8020)
     
     /* Ultrasonic */
@@ -63,7 +63,7 @@ void Init(unsigned char * buf) {
     
     /* PWM */
     TMR3 = 0x0;
-    PR3 = PWM_T;
+    PR3 = PWM_T;			// f = 122 Hz
     OC4R = 0x0;
     OC4RS = 0x0;
     OC4CON = 0xE;		// PWM mode without fault protection, timer 3

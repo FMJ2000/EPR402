@@ -9,7 +9,7 @@ while True:
 		ser_bytes = ser.readline()
 		decoded_bytes = ser_bytes.decode('utf-8')
 		print(decoded_bytes, end='')
-		with open('path_log2.txt', 'a') as f:
+		with open('path_log5.txt', 'a') as f:
 			f.write(decoded_bytes)
 	except Exception as e:
 		pass

@@ -18,9 +18,9 @@ void Bot_Init(struct Bot ** bot, float pos[3]) {
 		(*bot)->wOdo[i] = W_ODO / ((i+1)*(i+1));
 	
 	// temporary configurations
-	//float queue[4][2] = { {0.6, 0.0}, {0.6, 0.6}, {0., 0.6}, {0.0, 0.0} };
-	//Bot_Goal_Queue(*bot, 4, queue);
-	(*bot)->explorePos[0] = 1.2;
+	//float queue[2][2] = { {0.5, 0.0}, {1, 0.0} };//{0.3, 0.0}, {0.3, 0.3}, {0., 0.3}, {0.0, 0.0} };
+	//Bot_Goal_Queue(*bot, 2, queue);
+	//(*bot)->explorePos[0] = 1.2;
 }
 
 // determine maps that form part of local map and create if necessary
@@ -88,10 +88,11 @@ uint8_t Bot_Map_View(struct Bot * bot) {
 
 // localization steps, IMU updates at 40 Hz
 void Bot_Pos_IMU(struct Bot * bot) {
+	//if ((bot->state & STATE_MASK) == INIT) return;
 	IMU_Read(bot->imu);
 	Bot_Bias(bot);
 	
-	Odometer_Read(&bot->odo, F_IMU);//odoArr[bot->odoIndex], F_IMU);
+	Odometer_Read(&bot->odo, F_IMU);//odoArr[bot->odoIndex], F_IMU);	
 	/*bot->odo[0] = 0;
 	bot->odo[1] = 0;
 	for (uint8_t i = 0; i < F_ODO; i++) {
@@ -121,6 +122,7 @@ void Bot_Pos_IMU(struct Bot * bot) {
 	bot->pos[3] =  0.5*(bot->odo[1] + bot->odo[0]);
 	bot->pos[4] = bot->imu[2];
 	Bot_Motion_Model(&bot->pos, DT_IMU);
+	Map_Update_Visit(bot->map, bot->pos);
 	
 	/*
 	for (uint8_t i = 0; i < UKF_T; i++) {
@@ -340,16 +342,25 @@ void Bot_Pos_Control(struct Bot * bot) {
 
 	// check if new path needed
 	if (getDistance(bot->goal[bot->goalIndex], bot->pos) < MIN_GOAL_DIST) {
-		bot->state = (bot->state & ~STATE_MASK) | IDLE;
-		Bot_Motor_Control(bot);
 		bot->goalIndex++;
-		Bot_UART_Map(bot);
-		bot->state = (bot->state & ~STATE_MASK) | NAVIGATE;
-		if (bot->goalIndex == GOAL_LEN) {//Bot_Navigate(bot);
-			bot->state = (bot->state & ~STATE_MASK) | FINISH;
-			Bot_Motor_Control(bot);
-		} else if (Bot_Path_Collision(bot)) Bot_Navigate(bot);
+		if (bot->goalIndex == GOAL_LEN) {
+			//if (getDistance(bot->explorePos, bot->pos) < MIN_GOAL_DIST) bot->state = (bot->state & ~STATE_MASK) | FINISH;
+			//else
+			Bot_Navigate(bot);
+		}
+		else if (Bot_Path_Collision(bot)) {
+			Bot_Explore(bot);
+			Bot_Navigate(bot);
+		}
 		else Bot_UART_Write(bot, "new pos: (%.2f, %.2f)\r\n", bot->goal[bot->goalIndex][0], bot->goal[bot->goalIndex][1]);
+		char oldState = bot->state & STATE_MASK;
+		//bot->state = (bot->state & ~STATE_MASK) | IDLE;
+		Bot_UART_Write(bot, "bpos = [%.2f, %.2f]\r\n", bot->pos[0], bot->pos[1]);
+		//delay(20000l);
+		Bot_Motor_Control(bot);
+		//Bot_UART_Map(bot);
+		//bot->state = (bot->state & ~STATE_MASK) | oldState;
+		//if (bot->goalIndex == GOAL_LEN || Bot_Path_Collision(bot)) Bot_Navigate(bot);
 		return;
 	}
 
@@ -387,8 +398,6 @@ void Bot_Pos_Control(struct Bot * bot) {
 
 // A* search algorithm
 void Bot_Navigate(struct Bot * bot) {
-	LATAINV = _LATA_LATA1_MASK;
-	
 	// stop first as this might take a while
 	LATACLR = _LATA_LATA3_MASK;
 	LATBCLR = _LATB_LATB4_MASK;
@@ -396,14 +405,14 @@ void Bot_Navigate(struct Bot * bot) {
 	OC4RS = 0x0;
 	
 	// check if new exploration point needed
-	//if (getDistance(bot->pos, bot->explorePos) < MIN_GOAL_DIST)
-	//Bot_Explore(bot); 
+	if (getDistance(bot->pos, bot->explorePos) < MIN_GOAL_DIST) Bot_Explore(bot); 
 	
 	// build queues of nodes
 	struct NodeQueue openQueue = {0};
 	struct NodeQueue closedQueue = {0};
 	struct Node initNode = { .h=getDistance(bot->explorePos, bot->pos), .posf={bot->pos[0], bot->pos[1]} };
 	NodeQueue_Add(&openQueue, &initNode);
+	struct Node * bestNode = &initNode;
 	
 	struct Node * node = NULL;
 	int iter = 0;
@@ -414,7 +423,7 @@ void Bot_Navigate(struct Bot * bot) {
 		if (node) {
 			NodeQueue_Add(&closedQueue, node);
 			//Bot_UART_Node(bot, node);
-			//delay(10000l);
+			//delay(200000l);
 			
 			// check if goalNode
 			if (node->h < MIN_SEARCH_GOAL) {
@@ -422,7 +431,7 @@ void Bot_Navigate(struct Bot * bot) {
 				NodeQueue_Destroy(&openQueue);
 				NodeQueue_Destroy(&closedQueue);
 				return;
-			}
+			} else if ((node->h + node->g) < (bestNode->h + bestNode->h)) bestNode = node;
 
 			// expand neighbors
 			for (uint8_t i = 0; i < 8; i++) {
@@ -430,17 +439,19 @@ void Bot_Navigate(struct Bot * bot) {
 				char flag = NodeQueue_Contains(&closedQueue, newPosI);
 				if (NodeQueue_Contains(&closedQueue, newPosI) == -1) {
 					float newPosF[2] = { bot->pos[0] + NAV_STEP*newPosI[0], bot->pos[1] + NAV_STEP*newPosI[1] };
+					float cost = (i % 2 == 0) ? NAV_SQRT : NAV_STEP;
+					//cost += VISIT_COST * Map_Check_Visited()
 					char fObs = 0;
-					if (node->g < 0.6) {
+					//if (node->g < 0.) {
 						fObs = Map_Pos_Collide(bot->map, newPosF);
 						uint8_t nIndex = 0;
 						while (fObs == -1 && nIndex < 8) fObs = Map_Pos_Collide(bot->map->neighbors[nIndex++], newPosF);
 						//Bot_UART_Write(bot, "fObs: %d\r\n", fObs);
 						//delay(10000l);
-					}
+					//}
 					if (fObs < 1) {
 						int openIndex = NodeQueue_Contains(&openQueue, newPosI);
-						float cost = (i % 2 == 0) ? NAV_SQRT : NAV_STEP;
+						
 						if (openIndex == -1) {
 							// not in open queue yet	
 							struct Node newNode = { 
@@ -460,12 +471,15 @@ void Bot_Navigate(struct Bot * bot) {
 			}
 		}
 	}
+	
+	// if not found take best route available
+	Bot_Backtrack(bot, bestNode);
 	NodeQueue_Destroy(&openQueue);
 	NodeQueue_Destroy(&closedQueue);
 	
 	// path not found, calculate new explore pos then recursive
-	Bot_UART_Write(bot, "path not found\r\n");
-	bot->state = (bot->state & ~STATE_MASK) | FINISH;
+	//Bot_UART_Write(bot, "path not found\r\n");
+	//bot->state = (bot->state & ~STATE_MASK) | FINISH;
 	//Bot_Explore(bot);
 	//Bot_Navigate(bot);
 }
@@ -476,6 +490,7 @@ void Bot_Backtrack(struct Bot * bot, struct Node * node) {
 	//Bot_UART_Map(bot);
 	//Bot_UART_Write(bot, "bPos: (%.2f, %2f)\r\n");
 	//delay(20000l);
+	
 	if (node == NULL) return;
 	bot->goalIndex = GOAL_LEN;
 	int count = 0;
@@ -490,33 +505,56 @@ void Bot_Backtrack(struct Bot * bot, struct Node * node) {
 	snprintf(msg, BUF_LEN, "%s]\r\n", msg);
 	Bot_UART_Write(bot, msg);
 	//bot->state = (bot->state & ~STATE_MASK) | IDLE;
-	delay(100000l);
+	delay(300000l);
 }
+
 
 // choose a new exploration position to maximize information gain
 void Bot_Explore(struct Bot * bot) {
 	// build edge map of map in view first, then neighbors
+	LATASET = _LATA_LATA1_MASK;
 	uint8_t fIndex[2] = {0};
 	float fPos[2] = {0};
 	
-	uint8_t minIndex = Bot_Map_View(bot);
-
-	if (minIndex == -1) {
-		Map_Frontier(bot->map, bot->pos, fIndex);
-		memcpy(fPos, bot->map->pos, sizeof(float) * 2);
-	} else if (Map_Frontier(bot->map->neighbors[minIndex], bot->pos, fIndex)) memcpy(fPos, bot->map->neighbors[minIndex]->pos, sizeof(float) * 2);
-	/*else {
-		uint8_t mIndex = 0;
-		while (mIndex < 8 && !Map_Frontier(bot->map->neighbors[mIndex++], bot->pos, fIndex));
-		if (bot->map->neighbors[mIndex-1]) memcpy(fPos, bot->map->neighbors[mIndex-1]->pos, sizeof(float) * 2);
-	}*/
-	bot->explorePos[0] = fPos[0] + fIndex[0]*MAP_RES;
-	bot->explorePos[1] = fPos[1] - fIndex[1]*MAP_RES;
-	//Bot_UART_Write(bot, "exPos: %.2f, %.2f\r\n", bot->explorePos[0], bot->explorePos[1]);
-	//delay(10000l);
+	//uint8_t minIndex = Bot_Map_View(bot);
+	char fObs = Map_Frontier(bot->map, bot->pos, bot->explorePos, fIndex);
+	if (fObs) memcpy(fPos, bot->map->pos, sizeof(float) * 2);
+	else {
+		uint8_t iter = 0;
+		while (!fObs && iter < 8) fObs = Map_Frontier(bot->map->neighbors[iter++], bot->pos, bot->explorePos, fIndex);
+		if (fObs) memcpy(fPos, bot->map->neighbors[iter-1]->pos, sizeof(float) * 2);
+	}
+		
+	if (fObs) {
+		bot->explorePos[0] = fPos[0] + fIndex[0]*MAP_RES;
+		bot->explorePos[1] = fPos[1] - fIndex[1]*MAP_RES;
+	} else {
+		Bot_UART_Write(bot, "path not found\r\n");
+		bot->state = (bot->state & ~STATE_MASK) | FINISH;
+	}
+	Bot_UART_Write(bot, "exPos: %.2f, %.2f\r\n", bot->explorePos[0], bot->explorePos[1]);
+	delay(20000l);
+	LATACLR = _LATA_LATA1_MASK;
 }
 
+/*
+void Bot_Explore(struct Bot * bot) {
+	for (uint8_t i = 0; i < MAP_UNITS; i++) {
+		for (uint8_t j = 0; j < MAP_UNITS; j++) {
+			if (Map_Check_Visited(bot->map, (uint8_t [2]){i, j})) {
+				bot->explorePos[0] = bot->map->pos[0] + MAP_RES*i;
+				bot->explorePos[1] = bot->map->pos[1] - MAP_RES*j;
+				return;
+			}
+		}
+	}
+	Bot_UART_Write(bot, "path not found\r\n");
+	bot->state = (bot->state & ~STATE_MASK) | FINISH;
+}
+ */
+
 char Bot_Detect_Collision(struct Bot * bot) {
+	if ((bot->state & STATE_MASK) != NAVIGATE) return 0;
 	// check for collision
 	if ((bot->uGoal[0] > V_REF && (bot->odo[0] + bot->odo[1]) < V_REF / 2) || (fabs(bot->uGoal[1]) > W_REF && fabs(bot->imu[2] < W_REF / 2))) bot->collideCount++;
 	else bot->collideCount = 0;
@@ -531,7 +569,7 @@ char Bot_Detect_Collision(struct Bot * bot) {
 	if (bot->pos[3] > 0.1) {
 		for (uint8_t i = 0; i < 3; i++)
 			if (bot->dist[i] < MIN_OBST_DIST) return 1;
-	} */
+	} 
 
 	// check for collision on trajectory - assuming constant velocity
 	float xt[3] = { bot->pos[0], bot->pos[1], bot->pos[2] };
@@ -544,6 +582,7 @@ char Bot_Detect_Collision(struct Bot * bot) {
 		//while (fObs == -1 && nIndex < 8) fObs = Map_Pos_Collide(bot->map->neighbors[nIndex++], xt);
 		if (fObs == 1) return 1;
 	}
+	 * */
 
 	return 0;
 }
@@ -557,17 +596,17 @@ char Bot_Path_Collision(struct Bot * bot) {
 }
 
 void Bot_Quick_Reverse(struct Bot * bot) {
+	OC5RS = 0.88;
+	OC4RS = 0.88;
 	LATASET = _LATA_LATA3_MASK;
 	LATBSET = _LATB_LATB4_MASK;
-	OC5RS = 0.85;
-	OC4RS = 0.85;
 	
 	delay(200000l);
 	
-	LATACLR = _LATA_LATA3_MASK;
-	LATBCLR = _LATB_LATB4_MASK;
 	OC5RS = 0.0;
 	OC4RS = 0.0;
+	LATACLR = _LATA_LATA3_MASK;
+	LATBCLR = _LATB_LATB4_MASK;
 }
 
 // print
@@ -579,13 +618,13 @@ void Bot_Display_Status(struct Bot * bot) {
 		case NAVIGATE: strcpy(status, "NAV"); break;
 		case FINISH: strcpy(status, "FIN"); break;
 	}
-	float pos[2] = {0};
+	/*float pos[2] = {0};
 	if (bot->goalIndex >= 0 && bot->goalIndex < GOAL_LEN) {
 		pos[0] = bot->goal[bot->goalIndex][0];
 		pos[1] = bot->goal[bot->goalIndex][1];
-	}
+	}*/
 	OLED_ClearDisplay();
-	OLED_Write_Text(0, 0, "%s %ds %2.f%% %.2f %.2f", status, bot->time, bot->battery, pos[0], pos[1]);
+	OLED_Write_Text(0, 0, "%s %ds %2.f%% %.2f %.2f", status, bot->time, bot->battery, bot->explorePos[0], bot->explorePos[1]);
 	OLED_Write_Text(0, 10, "p %.2f %.2f %.f", bot->pos[0], bot->pos[1], bot->pos[2] * 180.0 / M_PI);
 	OLED_Write_Text(0, 20, "e %.2f %.f %d", bot->ePos[0], bot->ePos[1]*180./M_PI, bot->goalIndex);
 	OLED_Write_Text(0, 30, "d %0.2f %0.2f o %.1f %.1f", bot->duty[0], bot->duty[1], bot->odo[0], bot->odo[1]);
@@ -595,17 +634,40 @@ void Bot_Display_Status(struct Bot * bot) {
 }
 
 void Bot_Display_Map(struct Bot * bot) {
+	char status[4];
+	switch (bot->state & STATE_MASK) {
+		case INIT: strcpy(status, "INT"); break;
+		case IDLE: strcpy(status, "IDL"); break;
+		case NAVIGATE: strcpy(status, "NAV"); break;
+		case FINISH: strcpy(status, "FIN"); break;
+	}
+	
 	OLED_ClearDisplay();
 	OLED_FillRectangle(0, 0, 4*MAP_UNITS, 4*MAP_UNITS, WHITE);
 	for (uint8_t i = 0; i < MAP_UNITS; i++) {
 		for (uint8_t j = 0; j < MAP_UNITS; j++) {
-			if (bot->map->grid[i][j] < LOG_PRIOR) OLED_FillRectangle(4*i, 4*j, 4*i+4, 4*j+4, BLACK); 
+			if (bot->map->grid[i][j] < 0) {
+				OLED_FillRectangle(4*i, 4*j, 4*i+4, 4*j+4, BLACK);
+				if (bot->map->grid[i][j] > -0.8) {
+					OLED_FillRectangle(4*i+1, 4*j+1, 4*i+3, 4*j+3, WHITE); 
+					OLED_DrawPixel(4*i+1, 4*j+1, BLACK);
+				}
+			} else if (bot->map->grid[i][j] < 0.8) {
+				OLED_FillRectangle(4*i+1, 4*j+1, 4*i+3, 4*j+3, BLACK); 
+				OLED_DrawPixel(4*i+1, 4*j+1, WHITE);
+			}
 		}
 	}
-	OLED_Write_Text(70, 0, "%.2f", bot->dist[0]);
-	OLED_Write_Text(70, 10, "%.2f", bot->dist[1]);
-	OLED_Write_Text(70 , 20, "%.2f", bot->dist[2]);
-	OLED_Write_Text(70, 30, "%d %.2f", bot->usCount, LOG_PRIOR);
+	float pos[2] = {0};
+	if (bot->goalIndex >= 0 && bot->goalIndex < GOAL_LEN) {
+		pos[0] = bot->goal[bot->goalIndex][0];
+		pos[1] = bot->goal[bot->goalIndex][1];
+	}
+	OLED_Write_Text(70, 0, "%.2f %.2f", bot->pos[0], bot->pos[1]);
+	OLED_Write_Text(70, 10, "%.2f %.2f", bot->explorePos[0], bot->explorePos[1]);
+	OLED_Write_Text(70 , 20, "%.2f %.2f", pos[0], pos[1]);
+	OLED_Write_Text(70, 30, "%.2f, %.2f", bot->dist[0], bot->dist[1]);
+	OLED_Write_Text(70, 40, "%.2f %s", bot->dist[2], status);
 	OLED_Update();
 }
 
@@ -616,12 +678,14 @@ void Bot_UART_Status(struct Bot * bot) {
 			"p: (%.2f, %.2f, %.f, %.2f, %.f)\r\n"
 			"e: (%.2f, %.f)\r\n"
 			"o: (%.2f, %.2f)\r\n"
+			"i: (%.2f, %.2f, %.f)\r\n"
 			"u: (%.2f, %.2f)\r\n"
 			"dc: (%.2f, %.2f)\r\n\n",
 			bot->time,
 			bot->pos[0], bot->pos[1], bot->pos[2]*180./M_PI, bot->pos[3], bot->pos[4]*180./M_PI,
 			bot->ePos[0], bot->ePos[1]*180./M_PI,
 			bot->odo[0], bot->odo[1],
+			bot->imu[0], bot->imu[1], bot->imu[2]*180./M_PI,
 			bot->uGoal[0], bot->uGoal[1],
 			bot->duty[0], bot->duty[1]
     );
@@ -656,8 +720,8 @@ void Bot_UART_Map(struct Bot * bot) {
 	//delay(50000l);
 	Mat_Print(bot, MAP_UNITS, MAP_UNITS, bot->map->grid, "");
 	delay(4000000l);
-	Mat_Print(bot, MAP_UNITS, MAP_UNITS, bot->map->neighbors[3]->grid, "");
-	delay(4000000l);
+	//Mat_Print(bot, MAP_UNITS, MAP_UNITS, bot->map->neighbors[3]->grid, "");
+	//delay(4000000l);
 	/*for (uint8_t i = 0; i < 8; i++) {
 		if (bot->map->neighbors[i]) {
 			Bot_UART_Write(bot, "\r\nm(%d):(%.2f, %.2f)\r\n", i, bot->map->neighbors[i]->pos[0], bot->map->neighbors[i]->pos[1]);

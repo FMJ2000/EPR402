@@ -98,14 +98,17 @@ void __ISR(_TIMER_1_VECTOR, IPL3SOFT) TMR1_IntHandler() {
 	
 	//Bot_UART_Status(bot);
 	
-	if (bot->count % 5 == 0) {
+	if (bot->count % 4 == 0) {
 		//Bot_Pos_Odo(bot);		// odo pos update @ 4 Hz
-		Bot_Display_Status(bot);
+		//Bot_Display_Status(bot);
 		//Bot_UART_Status(bot);
-		//Bot_Display_Map(bot);
+		Bot_Display_Map(bot);
+		if (Bot_Detect_Collision(bot)) Bot_Navigate(bot);
 	}
 	
 	if (bot->count % 10 == 0) {
+		//if ((bot->state & STATE_MASK) != INIT) 
+		bot->usState = 0;
 		Ultrasonic_Trigger();	// distance reading @ 2 Hz
 		if ((bot->state & STATE_MASK) == FINISH) LATAINV = _LATA_LATA1_MASK;
 	}
@@ -122,12 +125,14 @@ void __ISR(_TIMER_1_VECTOR, IPL3SOFT) TMR1_IntHandler() {
 		}*/
 		
 		AD1CON1SET = _AD1CON1_SAMP_MASK;
-		
-		if (bot->time == 20) {
+		//if (bot->time == 18) bot->state = (bot->state & ~STATE_MASK) | IDLE;
+		if (bot->time == 10) {
 			for (uint8_t i = 0; i < 3; i++) bot->bias[i] /= bot->numBias;
 			bot->bias[2] *= M_PI / 180.0;
+			//Bot_UART_Map(bot);
 			bot->state = (bot->state & ~STATE_MASK) | NAVIGATE;
-			Bot_Navigate(bot);
+			//Bot_Navigate(bot);
+			Bot_UART_Write(bot, "Bot state: %d\r\n", bot->state);
 		}
 	}
 }
@@ -141,7 +146,7 @@ void __ISR(_TIMER_5_VECTOR, IPL3SOFT) TMR5_IntHandler() {
 
 	// check if all readings taken, update map 
 	if (bot->usState == US_SENSORS) {
-		bot->usState = 0;
+		
 		Bot_Map_Update(bot);
 	}
 }

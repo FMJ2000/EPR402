@@ -25,6 +25,7 @@
 #define US_SENSORS 3
 #define SENSOR_OFFSET 40. * M_PI / 180.  // angle offset between two sensors
 #define SENSOR_ANGLE 20. * M_PI / 180.
+#define MAX_US_DIST 0.9
 
 /* static global variables/constants */
 static struct Bot * bot;

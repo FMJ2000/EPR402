@@ -69,12 +69,25 @@ void Map_Update(struct Map * map, float pos[3], float dist[US_SENSORS]) {
 
 // update cell occupancy based on sensor data
 void Map_Cell_Update(float * cell, float dist, float z) {
+	if (dist > MAX_US_DIST) return;
 	float newL = L_MED;
 	if (dist < z - D_1) newL = L_LOW;
-	else if (dist < z + D_1) newL = L_LOW + (dist - z - D_1) * (L_HIGH - L_LOW) / (2*D_1);
+	else if (dist < z + D_1) newL = L_LOW + (dist - (z - D_1)) * (L_HIGH - L_LOW) / (2*D_1);
 	else if (dist < z + D_2) newL = L_HIGH;
-	else if (dist < z + D_3) newL = L_HIGH - (dist - z + D_3) * (L_HIGH - L_MED) / (D_3 - D_2);
+	else if (dist < z + D_3) newL = L_HIGH - (dist - (z + D_3)) * (L_HIGH - L_MED) / (D_3 - D_2);
 	*cell += newL - LOG_PRIOR;
+}
+
+void Map_Update_Visit(struct Map * map, float pos[2]) {
+	if (!map || !Map_Contains(map, pos)) return;
+	uint8_t index[2] = {(uint8_t)((pos[0] - map->pos[0]) / MAP_RES), (uint8_t)((map->pos[1] - pos[1]) / MAP_RES) };
+	map->visited[index[0]][index[1] / 8] |= 0x1 << (index[1] % 8);
+
+}
+
+char Map_Check_Visited(struct Map * map, uint8_t pos[2]) {
+	if (!map || pos[0] < 0 || pos[0] >= MAP_UNITS || pos[1] < 0 || pos[1] >= MAP_UNITS) return 0;
+	return (map->visited[pos[0]][pos[1] / 8] >> (pos[1] % 8)) & 0x1;
 }
 
 // check if position is located in map
@@ -89,11 +102,11 @@ char Map_Contains(struct Map * map, float pos[2]) {
 char Map_Pos_Collide(struct Map * map, float pos[2]) {
 	if (!map || !Map_Contains(map, pos)) return -1;
 	uint8_t index[2] = {(uint8_t)((pos[0] - map->pos[0]) / MAP_RES), (uint8_t)((map->pos[1] - pos[1]) / MAP_RES) };
-	if (map->grid[index[0]][index[1]] > 1) return 1;
-	for (uint8_t i = 0; i < 8; i++) {
-		uint8_t newIndex[2] = { index[0] + posMod[i][0], index[1] + posMod[i][1] };
+	if (map->grid[index[0]][index[1]] > L_HIGH) return 1;
+	for (uint8_t i = 0; i < 4; i++) {
+		uint8_t newIndex[2] = { index[0] + posMod[2*i+1][0], index[1] + posMod[2*i+1][1] };
 		if (newIndex[0] >= 0 && newIndex[0] < MAP_UNITS && newIndex[1] >= 0 && newIndex[1] < MAP_UNITS) {
-			if (map->grid[newIndex[0]][newIndex[1]] > 1) return 1;
+			if (map->grid[newIndex[0]][newIndex[1]] > L_HIGH) return 1;
 		}
 	}
 	return 0;
@@ -139,7 +152,7 @@ void Map_Blur(float blurGrid[MAP_UNITS][MAP_UNITS], float edgeGrid[MAP_UNITS][MA
 }
 
 // use edge map to obtain frontiers, if any
-char Map_Frontier(struct Map * map, float pos[3], uint8_t frontier[2]) {
+char Map_Frontier(struct Map * map, float pos[3], float oldPos[2], uint8_t frontier[2]) {
 	if (!map) return 0;
 	float edgeGrid[MAP_UNITS][MAP_UNITS], blurGrid[MAP_UNITS][MAP_UNITS];
 	Map_Edge(map, edgeGrid);
@@ -161,12 +174,12 @@ char Map_Frontier(struct Map * map, float pos[3], uint8_t frontier[2]) {
 	for (int i = 0; i < fIndex; i++) {
 		float fpos[2] = { map->pos[0] + frontiers[i][0]*MAP_RES, map->pos[1] - frontiers[i][1]*MAP_RES };
 		float angle = atan2(fpos[1] - pos[1], fpos[0] - pos[0]) - pos[2];
-		float distance = getDistance(fpos, pos);
-		if (fabs(angle) < fabs(minAngle)) {
+		float distance = getDistance(fpos, oldPos);
+		if (fabs(angle) < fabs(minAngle) && distance > FRONTIER_DIST) {
 			minAngle = angle;
 			frontier[0] = frontiers[i][0];
 			frontier[1] = frontiers[i][1];
 		}
 	}
-	return 1;
+	return (minAngle != M_PI);
 }
