@@ -36,10 +36,13 @@ def map_plot(map, index):
 
 	plt.grid()
 
-def path_plot(path):
-	plt.scatter(path[-1][0], path[-1][1], c='orange', s=50, label='final pos', zorder=10)
-	plt.plot(path[:,0], path[:,1], c='r', marker='.', markersize=20, label='path')
-
+def path_plot(path, true=[]):
+	plt.scatter(path[-1][0], path[-1][1], c='orange', s=50, label='est final pos', zorder=10)
+	plt.plot(path[:,0], path[:,1], c='r', marker='.', markersize=20, label='estimated path')
+	if len(true) > 0:
+		plt.scatter(true[-1][0], true[-1][1], c='lightblue', s=50, label='real final pos', zorder=10)
+		plt.plot(true[:,0], true[:,1], c='b', marker='.', markersize=20, label='real path')
+	
 
 def paths():
 	pos = [
@@ -55,6 +58,21 @@ def paths():
 		[0.83, 0.15],
 		[0.99, 0.02],
 		[1.13, -0.00]
+	]
+
+	true = [
+		[0, 0],
+		[0, 0],
+		[0.05, -0.00],
+		[0.22, 0.11],
+		[0.37, 0.24],
+		[0.51, 0.27],
+		[0.57, 0.27],
+		[0.62, 0.27],
+		[0.70, 0.24],
+		[0.87, 0.21],
+		[1.02, 0.17],
+		[1.17, 0.15]
 	]
 
 	path = [
@@ -313,7 +331,8 @@ def paths():
 
 	print(len(pos))
 	print(len(maps))
-
+	
+	'''
 	for i in range(len(maps)):
 		plt.figure(figsize=(5,5))
 		map_plot(maps[i], i)
@@ -321,11 +340,13 @@ def paths():
 		pos_plot(pos[i])
 		plt.legend(loc='lower left')
 		plt.savefig(f'Figures/planner{i}.png', format='png')
+	'''
 
 	full = np.concatenate((maps[7], maps[11]))
 	plt.figure(figsize=(10,5))
 	map_plot(full, -1)
-	path_plot(np.array(pos))
+	path_plot(np.array(pos), np.array(true))
+	plt.legend(loc='lower left')
 	plt.savefig(f'Figures/planner_full.png', format='png')
 	
 

@@ -9,6 +9,21 @@ void Map_Init(struct Map ** map, float pos[2]) {
 			(*map)->grid[i][j] = LOG_PRIOR;
 }
 
+// auxiliary index and state space mapping functions
+char Map_PosToIndex(struct Map * map, uint8_t index[2], float pos[2]) {
+	if (!map || !Map_Contains(map, pos)) return 0;
+	index[0] = (uint8_t)((pos[0] - map->pos[0]) / MAP_RES);
+	index[1] = (uint8_t)((map->pos[1] - pos[1]) / MAP_RES);
+	return 1;
+}
+
+char Map_IndexToPos(struct Map * map, float pos[2], uint8_t index[2]) {
+	if (!map || index[0] < 0 || index[0] >= MAP_UNITS || index[1] < 0 || index[1] >= MAP_UNITS) return 0;
+	pos[0] = map->pos[0] + index[0]*MAP_RES;
+	pos[1] = map->pos[1] - index[1]*MAP_RES;
+	return 1;
+}
+
 // reinforce neighbor connections between maps
 void Map_Reinforce(struct Map * map) {
 	if (!map) return;
@@ -74,20 +89,24 @@ void Map_Cell_Update(float * cell, float dist, float z) {
 	if (dist < z - D_1) newL = L_LOW;
 	else if (dist < z + D_1) newL = L_LOW + (dist - (z - D_1)) * (L_HIGH - L_LOW) / (2*D_1);
 	else if (dist < z + D_2) newL = L_HIGH;
-	else if (dist < z + D_3) newL = L_HIGH - (dist - (z + D_3)) * (L_HIGH - L_MED) / (D_3 - D_2);
+	else if (dist < z + D_3) newL = L_HIGH - ((z + D_3) - dist) * (L_HIGH - L_MED) / (D_3 - D_2);
 	*cell += newL - LOG_PRIOR;
 }
 
 void Map_Update_Visit(struct Map * map, float pos[2]) {
-	if (!map || !Map_Contains(map, pos)) return;
-	uint8_t index[2] = {(uint8_t)((pos[0] - map->pos[0]) / MAP_RES), (uint8_t)((map->pos[1] - pos[1]) / MAP_RES) };
-	map->visited[index[0]][index[1] / 8] |= 0x1 << (index[1] % 8);
-
+	uint8_t botIndex[2];
+	if (!map || !Map_PosToIndex(map, botIndex, pos)) return;
+	map->visited[botIndex[0]][botIndex[1] / 8] |= 0x1 << (botIndex[1] % 8);
+	for (uint8_t i = 0; i < 8; i++) {
+		uint8_t index[2] = { botIndex[0] + bPosMod[i][0], botIndex[1] + bPosMod[i][1] };
+		if (index[0] >= 0 && index[0] < MAP_UNITS && index[1] >= 0 && index[1] < MAP_UNITS) map->visited[index[0]][index[1] / 8] |= 0x1 << (index[1] % 8);
+	}
 }
 
-char Map_Check_Visited(struct Map * map, uint8_t pos[2]) {
-	if (!map || pos[0] < 0 || pos[0] >= MAP_UNITS || pos[1] < 0 || pos[1] >= MAP_UNITS) return 0;
-	return (map->visited[pos[0]][pos[1] / 8] >> (pos[1] % 8)) & 0x1;
+char Map_Check_Visited(struct Map * map, float pos[2]) {
+	uint8_t index[2];
+	if (!map || !Map_PosToIndex(map, index, pos)) return 0;
+	return (map->visited[index[0]][index[1] / 8] >> (index[1] % 8)) & 0x1;
 }
 
 // check if position is located in map
@@ -100,8 +119,8 @@ char Map_Contains(struct Map * map, float pos[2]) {
 
 // check if the location or surrounding is obstructed
 char Map_Pos_Collide(struct Map * map, float pos[2]) {
-	if (!map || !Map_Contains(map, pos)) return -1;
-	uint8_t index[2] = {(uint8_t)((pos[0] - map->pos[0]) / MAP_RES), (uint8_t)((map->pos[1] - pos[1]) / MAP_RES) };
+	uint8_t index[2];
+	if (!map || !Map_PosToIndex(map, index, pos)) return -1;
 	if (map->grid[index[0]][index[1]] > L_HIGH) return 1;
 	for (uint8_t i = 0; i < 4; i++) {
 		uint8_t newIndex[2] = { index[0] + posMod[2*i+1][0], index[1] + posMod[2*i+1][1] };
@@ -151,8 +170,36 @@ void Map_Blur(float blurGrid[MAP_UNITS][MAP_UNITS], float edgeGrid[MAP_UNITS][MA
 	}
 }
 
-// use edge map to obtain frontiers, if any
-char Map_Frontier(struct Map * map, float pos[3], float oldPos[2], uint8_t frontier[2]) {
+void Map_SafeZone(struct Map * map, char safeGrid[3*MAP_UNITS][3*MAP_UNITS]) {
+	if (!map) return;
+	for (uint8_t i = 0; i < 9; i++) {
+		struct Map * submap = (i) ? map->neighbors[i-1] : map;
+		if (submap && submap->grid) {
+			for (uint8_t j = 0; j < MAP_UNITS; j++) {
+				for (uint8_t k = 0; k < MAP_UNITS; k++) {				
+					// check for frontier if uncertain with known unobstructed neighbour
+					char visited = (submap->visited[j][k / 8] >> (k % 8)) & 0x1;
+					char frontier = 0;
+					/*if (submap->grid[j][k] > -0.3 && submap->grid[j][k] < 0.3) {
+						float lmin = LH;
+						for (uint8_t l = 0; l < 8; l++) {	
+							uint8_t nIndex[2] = { j+posMod[l][0], k+posMod[l][1] };
+							if (nIndex[0] >= 0 && nIndex[0] < MAP_UNITS && nIndex[1] >= 0 && nIndex[1] < MAP_UNITS) {
+								float lm = map->grid[nIndex[0]][nIndex[1]];
+								if (lm < lmin) lmin = lm;
+							}
+						}
+						if (lmin < EDGE_L) frontier = 1;
+					}*/
+					safeGrid[MAP_UNITS + safePosMod[i][0]*MAP_UNITS + j][MAP_UNITS + safePosMod[i][1]*MAP_UNITS + k] = (frontier || (submap->grid[j][k] < EDGE_L && !visited));
+				}
+			}
+		}
+	}
+}
+
+// use edge map to obtain global safe region, if any
+/*char Map_Frontier(struct Map * map, float pos[3], float oldPos[2], uint8_t frontier[2]) {
 	if (!map) return 0;
 	float edgeGrid[MAP_UNITS][MAP_UNITS], blurGrid[MAP_UNITS][MAP_UNITS];
 	Map_Edge(map, edgeGrid);
@@ -182,4 +229,35 @@ char Map_Frontier(struct Map * map, float pos[3], float oldPos[2], uint8_t front
 		}
 	}
 	return (minAngle != M_PI);
+}*/
+
+char Map_Frontier(struct Map * map, float botPos[3], float exPos[2])  {	
+	// get unoccupied and unvisited blocks in supermap
+	char safeGrid[3*MAP_UNITS][3*MAP_UNITS] = {{0}};
+	Map_SafeZone(map, safeGrid);
+	float startPos[2] = { map->pos[0] - MAP_SIZE, map->pos[1] + MAP_SIZE };
+	uint8_t oldIndex[2] = { (uint8_t)((exPos[0] - startPos[0]) / MAP_RES), (uint8_t)((startPos[1] - exPos[1]) / MAP_RES) };
+	
+	// determine most viable point
+	uint8_t bestIndex[2] = {0};
+	float minVal = 1000;
+	for (uint8_t i = 0; i < FRONTIER_TRIES; i++) {
+		uint8_t randIndex[2] = { rand() % (3*MAP_UNITS), rand() % (3*MAP_UNITS) };
+		if (randIndex[0] != oldIndex[0] && randIndex[1] != oldIndex[1]) {
+			float randPos[2] = { startPos[0] + randIndex[0] * MAP_RES, startPos[1] - randIndex[1] * MAP_RES };
+			if (safeGrid[randIndex[0]][randIndex[1]]) {
+				float val = getAngle(botPos, randPos) / getDistance(botPos, randPos);
+				if (val < minVal) {
+					minVal = val;
+					memcpy(bestIndex, randIndex, sizeof(float) * 2);
+					if (minVal < 0.02) break;
+				}
+			}
+		}
+	}
+	if (minVal == 1000) return 0;
+	
+	exPos[0] = startPos[0] + bestIndex[0] * MAP_RES;
+	exPos[1] = startPos[1] - bestIndex[1] * MAP_RES;
+	return 1;
 }

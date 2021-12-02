@@ -20,7 +20,7 @@
 #define SYSCLK 64000000l
 #define PBCLK 32000000l
 #define FREQ 20
-#define DT 1 / FREQ 
+#define DT 0.05
 #define US_TRIG_T 640           // ultrasonic trigger
 #define US_SENSORS 3
 #define SENSOR_OFFSET 40. * M_PI / 180.  // angle offset between two sensors

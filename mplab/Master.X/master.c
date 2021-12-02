@@ -49,7 +49,8 @@
 #include "master.h"
 
 int main() {
-	delay(100000l);
+	delay(150000l);
+	//LATBSET = _LATB_LATB11_MASK;			// activate vacuum
 	
 	// bot init
 	float startPos[3] = {0};
@@ -58,15 +59,17 @@ int main() {
 	// peripheral init
 	uint8_t whoami[2] = {0};
 	Init(bot->buf);
-	IMU_Init(whoami);
+	IMU_Init(whoami, bot->asa);
 	OLED_Init();
 	
 	OLED_ClearDisplay();
 	OLED_Write_Text(0, 0, "imu %d, mag %d", whoami[0], whoami[1]);
 	OLED_Update();
-	
 	Bot_UART_Write(bot, "Bot init...\r\n\n");
-
+	
+	T1CONSET = _T1CON_ON_MASK;			// start bot
+	LATASET = _LATA_LATA1_MASK;
+	
 	for (;;);
 	return EXIT_SUCCESS;
 }
@@ -88,29 +91,21 @@ void __ISR(_TIMER_1_VECTOR, IPL3SOFT) TMR1_IntHandler() {
 	IFS0CLR = _IFS0_T1IF_MASK;
 	bot->count++;
 	
-	Bot_Pos_IMU(bot);		// imu pos update @ 40 Hz
-	Bot_Pos_Control(bot);
-	/*if (bot->collideCount && Bot_Detect_Collision(bot)) {
-		LATAINV = _LATA_LATA1_MASK;
-		Bot_Navigate(bot);
-	}*/
-		
-	
-	//Bot_UART_Status(bot);
+	Bot_Pos_Update(bot);		// imu pos update @ 40 Hz
+	Bot_Pos_Control(bot);		
 	
 	if (bot->count % 4 == 0) {
-		//Bot_Pos_Odo(bot);		// odo pos update @ 4 Hz
 		//Bot_Display_Status(bot);
-		//Bot_UART_Status(bot);
+		// Bot_UART_Status(bot);
+		Bot_Detect_Collision(bot);
 		Bot_Display_Map(bot);
-		if (Bot_Detect_Collision(bot)) Bot_Navigate(bot);
 	}
 	
 	if (bot->count % 10 == 0) {
 		//if ((bot->state & STATE_MASK) != INIT) 
 		bot->usState = 0;
 		Ultrasonic_Trigger();	// distance reading @ 2 Hz
-		if ((bot->state & STATE_MASK) == FINISH) LATAINV = _LATA_LATA1_MASK;
+		if (bot->state == FINISH) LATAINV = _LATA_LATA1_MASK;
 	}
 
 	if (bot-> count % FREQ == 0) {
@@ -118,21 +113,22 @@ void __ISR(_TIMER_1_VECTOR, IPL3SOFT) TMR1_IntHandler() {
 		bot->count = 0;
 		bot->dblClickCount = 0;
 		
-		// check for collisions
-		/*if (Bot_Detect_Collision(bot)) {
-			LATAINV = _LATA_LATA1_MASK;
-			Bot_Navigate(bot);
-		}*/
+		// end reverse
+		if (bot->reverseCount) {
+			bot->reverseCount--;
+			if (!bot->reverseCount) Bot_Stop_Reverse(bot);
+		}
 		
 		AD1CON1SET = _AD1CON1_SAMP_MASK;
 		//if (bot->time == 18) bot->state = (bot->state & ~STATE_MASK) | IDLE;
-		if (bot->time == 10) {
+		if (bot->time == 3) {
 			for (uint8_t i = 0; i < 3; i++) bot->bias[i] /= bot->numBias;
 			bot->bias[2] *= M_PI / 180.0;
 			//Bot_UART_Map(bot);
-			bot->state = (bot->state & ~STATE_MASK) | NAVIGATE;
-			//Bot_Navigate(bot);
+			bot->state = NAVIGATE;
+			//LATBSET = _LATB_LATB11_MASK;			// activate vacuum
 			Bot_UART_Write(bot, "Bot state: %d\r\n", bot->state);
+			
 		}
 	}
 }
@@ -146,8 +142,8 @@ void __ISR(_TIMER_5_VECTOR, IPL3SOFT) TMR5_IntHandler() {
 
 	// check if all readings taken, update map 
 	if (bot->usState == US_SENSORS) {
-		
 		Bot_Map_Update(bot);
+		bot->usState = 0;
 	}
 }
 
@@ -163,8 +159,7 @@ void __ISR(_ADC_VECTOR, IPL1SOFT) ADC_IntHandler() {
 void __ISR(_CHANGE_NOTICE_VECTOR, IPL2SOFT) CNB_IntHandler() {
 	IFS1CLR = _IFS1_CNBIF_MASK;
 	if (!bot->dblClickCount) {
-		char newState = ((bot->state & STATE_MASK) == IDLE) ? NAVIGATE : IDLE;
-		bot->state = (bot->state & ~STATE_MASK) | newState;
+		bot->state = (bot->state == IDLE) ? NAVIGATE : IDLE;
 		bot->dblClickCount = 1;
 		Bot_UART_Write(bot, "Bot state: %d\r\n", bot->state);
 	}
