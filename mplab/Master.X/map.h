@@ -22,9 +22,9 @@
 #define MAX_US_DIST 0.9
 
 // log odds update
-#define D_1 0.06
-#define D_2 0.22
-#define D_3 0.28
+#define D_1 0.04
+#define D_2 0.16
+#define D_3 0.2
 #define L_LOW -0.847298
 #define L_MED 0.0
 #define L_HIGH 1.386294
@@ -40,7 +40,8 @@
 #define EDGE_L -1.0
 #define FRONTIER_L 1.38
 #define FRONTIER_DIST 0.12
-#define FRONTIER_TRIES 500
+#define FRONTIER_TRIES 64
+#define FRONTIER_MIN 0.05
 
 static const int posMod[8][2] = {
 	{-1, 1},

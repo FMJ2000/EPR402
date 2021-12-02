@@ -46,7 +46,7 @@
 #define K_RD 0.001
 #define K_UV 0.2
 #define K_UW 0.2
-#define MIN_GOAL_DIST 0.1
+#define MIN_GOAL_DIST 0.16
 #define MIN_DC 0.08
 #define INTEGRAL_LEN 40
 #define TURN_REF 0.6981318
@@ -65,6 +65,7 @@
 #define MIN_OBST_DIST 0.05
 #define VISIT_COST 0.4
 #define REVERSE_SPEED 0.82
+#define ERR_REF 0.01
 
 // sensors
 #define SOUND_SPEED 3.3e-4              // TMR5*SOUND_SPEED for distance

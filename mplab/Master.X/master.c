@@ -106,6 +106,8 @@ void __ISR(_TIMER_1_VECTOR, IPL3SOFT) TMR1_IntHandler() {
 		bot->usState = 0;
 		Ultrasonic_Trigger();	// distance reading @ 2 Hz
 		if (bot->state == FINISH) LATAINV = _LATA_LATA1_MASK;
+		if (bot->state == NAVIGATE || bot->state == REVERSE) LATBSET = _LATB_LATB11_MASK;			// activate vacuum
+		else LATBCLR = _LATB_LATB11_MASK;			// activate vacuum
 	}
 
 	if (bot-> count % FREQ == 0) {
@@ -126,7 +128,6 @@ void __ISR(_TIMER_1_VECTOR, IPL3SOFT) TMR1_IntHandler() {
 			bot->bias[2] *= M_PI / 180.0;
 			//Bot_UART_Map(bot);
 			bot->state = NAVIGATE;
-			//LATBSET = _LATB_LATB11_MASK;			// activate vacuum
 			Bot_UART_Write(bot, "Bot state: %d\r\n", bot->state);
 			
 		}

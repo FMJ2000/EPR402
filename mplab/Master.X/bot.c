@@ -90,21 +90,21 @@ uint8_t Bot_Map_View(struct Bot * bot) {
 void Bot_Pos_Update(struct Bot * bot) {
 	IMU_Read(bot->imu, bot->asa);
 	Bot_Bias(bot);
-	Odometer_Read(&bot->odo, FREQ);
+	//Odometer_Read(&bot->odo, FREQ);
 	
-	//odoArr[bot->odoIndex], F_IMU);	
-	/*bot->odo[0] = 0;
+	Odometer_Read(&bot->odoArr[bot->odoIndex], FREQ);	
+	bot->odo[0] = 0;
 	bot->odo[1] = 0;
-	for (uint8_t i = 0; i < F_ODO; i++) {
-		uint8_t index = (bot->odoIndex + i) % F_ODO;
+	for (uint8_t i = 0; i < FREQ; i++) {
+		uint8_t index = (bot->odoIndex + i) % FREQ;
 		bot->odo[0] += bot->odoArr[index][0] * bot->wOdo[i];
 		bot->odo[1] += bot->odoArr[index][1] * bot->wOdo[i];
 	}
-	bot->odoIndex = (bot->odoIndex + 1) % F_ODO;
+	bot->odoIndex = (bot->odoIndex + 1) % FREQ;
 	bot->odo[0] *= copysign(1.0, bot->duty[0]);
-	bot->odo[1] *= copysign(1.0, bot->duty[1]);*/
+	bot->odo[1] *= copysign(1.0, bot->duty[1]);
 	
-	if (bot->state != NAVIGATE || bot->state != REVERSE) return;
+	if (bot->state != NAVIGATE && bot->state != REVERSE) return;
 
 	// speedier solution
 	bot->pos[3] =  0.5*(bot->odo[1] + bot->odo[0]);
@@ -133,13 +133,14 @@ void Bot_Motion_Model(float x[UKF_N], float dt) {
 
 // motor controller at 40 Hz
 void Bot_Motor_Control(struct Bot * bot) {
+	if (bot->state == REVERSE) return;
 	if (bot->state == NAVIGATE) {
 		float e[2] = { bot->uGoal[0] - bot->uGoal[1] - bot->odo[0], bot->uGoal[0] + bot->uGoal[1] - bot->odo[1] };
 		bot->duty[0] = bot->uGoal[0] + bot->uGoal[1];// + K_UV*e[0];// - K_UW*e[1];
 		bot->duty[1] = bot->uGoal[0] - bot->uGoal[1];// + K_UV*e[1];// + K_UW*e[1]; 
 		//if (fabs(bot->duty[0]) < MIN_DC) bot->duty[0] = 0;
 		//if (fabs(bot->duty[1]) < MIN_DC) bot->duty[1] = 0;
-	} else if (bot->state != REVERSE) {
+	} else {
 		bot->duty[0] = 0;
 		bot->duty[1] = 0;
 		LATBCLR = _LATB_LATB4_MASK;
@@ -314,8 +315,8 @@ void Bot_Explore(struct Bot * bot) {
 	//LATASET = _LATA_LATA1_MASK;
 	if (!Map_Frontier(bot->map, bot->pos, bot->explorePos)) {
 		Bot_UART_Write(bot, "path not found\r\n");
-		bot->state = FINISH;
 		//Bot_Sweep(bot);
+		bot->state = FINISH;
 	}
 	//Bot_UART_Map(bot);
 	//LATACLR = _LATA_LATA1_MASK;
@@ -329,15 +330,16 @@ void Bot_Sweep(struct Bot * bot) {
 		if (index[0]) sweepMap = bot->map->neighbors[index[0] - 1];
 		else sweepMap = bot->map;
 		Map_IndexToPos(sweepMap, bot->explorePos, &index[1]);
-		if (!Map_Check_Visited(sweepMap, bot->explorePos)) break;
-
+		if (!Map_Check_Visited(sweepMap, bot->explorePos)) return;
 	}
+	bot->state = FINISH;
 }
 
 char Bot_Detect_Collision(struct Bot * bot) {
 	if (bot->state != NAVIGATE) return 0;
 	// check for collision
-	if ((bot->uGoal[0] > V_REF && (bot->odo[0] + bot->odo[1]) < V_REF / 2)) { // || (fabs(bot->uGoal[1]) > W_REF && fabs(bot->imu[2] < W_REF / 2))) {
+	//float e[2] = { fabs(bot->uGoal[0] - bot->uGoal[1] - bot->odo[0]), fabs(bot->uGoal[0] + bot->uGoal[1] - bot->odo[1]) };
+	if (fabs(bot->odo[0]) < ERR_REF || fabs(bot->odo[1]) < ERR_REF) {
 		bot->collideCount++;
 		LATASET = _LATA_LATA1_MASK;
 	} else {
@@ -395,7 +397,7 @@ void Bot_Quick_Reverse(struct Bot * bot) {
 		LATACLR = _LATA_LATA3_MASK;
 		LATBCLR = _LATB_LATB4_MASK;
 	}
-	bot->reverseCount = 2;
+	bot->reverseCount = 1;
 }
 
 void Bot_Stop_Reverse(struct Bot * bot) {
@@ -404,10 +406,10 @@ void Bot_Stop_Reverse(struct Bot * bot) {
 	LATACLR = _LATA_LATA3_MASK;
 	LATBCLR = _LATB_LATB4_MASK;
 	bot->inReverse ^= 1;
-	bot->state = NAVIGATE;
 	
 	Bot_Explore(bot);
 	Bot_Navigate(bot);
+	bot->state = NAVIGATE;
 }
 
 // print
@@ -417,6 +419,7 @@ void Bot_Display_Status(struct Bot * bot) {
 		case INIT: strcpy(status, "INT"); break;
 		case IDLE: strcpy(status, "IDL"); break;
 		case NAVIGATE: strcpy(status, "NAV"); break;
+		case REVERSE: strcpy(status, "REV"); break;
 		case FINISH: strcpy(status, "FIN"); break;
 	}
 	/*float pos[2] = {0};
@@ -440,6 +443,7 @@ void Bot_Display_Map(struct Bot * bot) {
 		case INIT: strcpy(status, "INT"); break;
 		case IDLE: strcpy(status, "IDL"); break;
 		case NAVIGATE: strcpy(status, "NAV"); break;
+		case REVERSE: strcpy(status, "REV"); break;
 		case FINISH: strcpy(status, "FIN"); break;
 	}
 	
@@ -453,7 +457,7 @@ void Bot_Display_Map(struct Bot * bot) {
 	mapArr[(mapIndex + 3) % 4] = bot->map->neighbors[(viewIndex+1)%8];
 	
 	uint8_t goalIndex[2] = {-1};
-	if (bot->goalIndex < GOAL_LEN) Map_PosToIndex(bot->map, goalIndex, bot->goal[bot->goalIndex]);
+	if (bot->goalIndex < GOAL_LEN) Map_PosToIndex(bot->map, goalIndex, bot->explorePos);
 	
 	OLED_ClearDisplay();
 	OLED_FillRectangle(0, 0, 4*MAP_UNITS, 4*MAP_UNITS, WHITE);
@@ -499,8 +503,10 @@ void Bot_Display_Map(struct Bot * bot) {
 	OLED_Write_Text(66, 20, "%.2f", bot->pos[2]);
 	OLED_Write_Text(66, 30, "%.2f %.2f", bot->explorePos[0], bot->explorePos[1]);
 	//OLED_Write_Text(66 , 30, "%.2f %.2f", pos[0], pos[1]);
-	OLED_Write_Text(66, 40, "%.2f, %.2f", bot->dist[0], bot->dist[1]);
-	OLED_Write_Text(66, 50, "%.2f %d", bot->dist[2], bot->numMaps);
+	//OLED_Write_Text(66, 40, "%.2f %.2f", bot->dist[0], bot->dist[1]);
+	//OLED_Write_Text(66, 50, "%.2f %d", bot->dist[2], bot->numMaps);
+	OLED_Write_Text(66, 40, "%.2f %.2f", bot->odo[0], bot->odo[1]);
+	OLED_Write_Text(66, 50, "%.2f %.2f", bot->uGoal[0], bot->uGoal[1]);
 	
 	OLED_Update();
 }

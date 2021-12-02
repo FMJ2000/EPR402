@@ -180,17 +180,17 @@ void Map_SafeZone(struct Map * map, char safeGrid[3*MAP_UNITS][3*MAP_UNITS]) {
 					// check for frontier if uncertain with known unobstructed neighbour
 					char visited = (submap->visited[j][k / 8] >> (k % 8)) & 0x1;
 					char frontier = 0;
-					/*if (submap->grid[j][k] > -0.3 && submap->grid[j][k] < 0.3) {
+					if (submap->grid[j][k] > -0.3 && submap->grid[j][k] < 0.3) {
 						float lmin = LH;
 						for (uint8_t l = 0; l < 8; l++) {	
 							uint8_t nIndex[2] = { j+posMod[l][0], k+posMod[l][1] };
 							if (nIndex[0] >= 0 && nIndex[0] < MAP_UNITS && nIndex[1] >= 0 && nIndex[1] < MAP_UNITS) {
-								float lm = map->grid[nIndex[0]][nIndex[1]];
+								float lm = submap->grid[nIndex[0]][nIndex[1]];
 								if (lm < lmin) lmin = lm;
 							}
 						}
 						if (lmin < EDGE_L) frontier = 1;
-					}*/
+					}
 					safeGrid[MAP_UNITS + safePosMod[i][0]*MAP_UNITS + j][MAP_UNITS + safePosMod[i][1]*MAP_UNITS + k] = (frontier || (submap->grid[j][k] < EDGE_L && !visited));
 				}
 			}
@@ -238,22 +238,29 @@ char Map_Frontier(struct Map * map, float botPos[3], float exPos[2])  {
 	float startPos[2] = { map->pos[0] - MAP_SIZE, map->pos[1] + MAP_SIZE };
 	uint8_t oldIndex[2] = { (uint8_t)((exPos[0] - startPos[0]) / MAP_RES), (uint8_t)((startPos[1] - exPos[1]) / MAP_RES) };
 	
-	// determine most viable point
+	// determine most viable point first in current map then in global map
 	uint8_t bestIndex[2] = {0};
 	float minVal = 1000;
-	for (uint8_t i = 0; i < FRONTIER_TRIES; i++) {
-		uint8_t randIndex[2] = { rand() % (3*MAP_UNITS), rand() % (3*MAP_UNITS) };
-		if (randIndex[0] != oldIndex[0] && randIndex[1] != oldIndex[1]) {
-			float randPos[2] = { startPos[0] + randIndex[0] * MAP_RES, startPos[1] - randIndex[1] * MAP_RES };
-			if (safeGrid[randIndex[0]][randIndex[1]]) {
-				float val = getAngle(botPos, randPos) / getDistance(botPos, randPos);
-				if (val < minVal) {
-					minVal = val;
-					memcpy(bestIndex, randIndex, sizeof(float) * 2);
-					if (minVal < 0.02) break;
+	for (uint8_t i = 0; i < 2; i++) {
+		for (uint8_t j = 0; j < FRONTIER_TRIES; j++) {
+			uint8_t randIndex[2] = { MAP_UNITS + rand() % MAP_UNITS, MAP_UNITS + rand() % MAP_UNITS };
+			if (i) {
+				randIndex[0] = rand() % (3*MAP_UNITS);
+				randIndex[1] = rand() % (3*MAP_UNITS);
+			}
+			if (randIndex[0] != oldIndex[0] && randIndex[1] != oldIndex[1]) {
+				if (safeGrid[randIndex[0]][randIndex[1]]) {
+					float randPos[2] = { startPos[0] + randIndex[0] * MAP_RES, startPos[1] - randIndex[1] * MAP_RES };
+					float val = powf(getAngle(botPos, randPos), 2) / powf(getDistance(botPos, randPos), 2);
+					if (val < minVal) {
+						minVal = val;
+						memcpy(bestIndex, randIndex, sizeof(float) * 2);
+						if (minVal < FRONTIER_MIN) break;
+					}
 				}
 			}
 		}
+		if (minVal < FRONTIER_MIN) break;
 	}
 	if (minVal == 1000) return 0;
 	
