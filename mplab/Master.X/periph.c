@@ -14,6 +14,7 @@ void Init(unsigned char * buf) {
     TRISB = 0xA3A0;
     LATB = 0xC;
 
+	RPB11R = 0x5;		// RB11 = OC2
     RPA2R = 0x5;		// RA2 = OC4
     RPA4R = 0x6;		// RA4 = OC5
     RPB14R = 0x2;		// RB14 = U2TX
@@ -63,6 +64,9 @@ void Init(unsigned char * buf) {
     /* PWM */
     TMR3 = 0x0;
     PR3 = PWM_T;			// f = 122 Hz
+	OC2R = 0x0;
+	OC2RS = 0x0;
+	OC2CON = 0xE;
     OC4R = 0x0;
     OC4RS = 0x0;
     OC4CON = 0xE;		// PWM mode without fault protection, timer 3
@@ -70,6 +74,7 @@ void Init(unsigned char * buf) {
     OC5RS = 0x0;
     OC5CON = 0xE;
     T3CON = 0x8060;		// 1:64 prescaler = 500 kHz
+	OC2CONSET = _OC2CON_ON_MASK;
     OC4CONSET = _OC4CON_ON_MASK;
     OC5CONSET = _OC5CON_ON_MASK; 
     

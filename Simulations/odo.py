@@ -8,21 +8,23 @@ for i in range(len(x)):
 		x[i] = 0.16
 y = 0.16 - x
 
-a = 1 / 1.5961632439130233
+a = 1 / 1.3
 print(a)
 s = []
-for i in range(20):
+for i in range(5):
 	s.append(a / (i+1)**2)
 print(s)
 print(sum(s))
 
-st = np.linspace(1, 20, 20)
+st = np.linspace(1, 5, 5)
 plt.figure()
 plt.plot(st, s)
 
+'''
 plt.figure()
 plt.plot(t, x)
 plt.plot(t, y)
 plt.plot(t, x+y)
-plt.show()
+'''
 
+plt.show()

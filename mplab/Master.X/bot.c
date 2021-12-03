@@ -13,13 +13,13 @@ void Bot_Init(struct Bot ** bot, float pos[3]) {
 	(*bot)->goalIndex = GOAL_LEN - 1;
 	(*bot)->terrainMod = 0.5;
 	
-	for (uint8_t i = 0; i < FREQ; i++)
+	for (uint8_t i = 0; i < ODO_LEN; i++)
 		(*bot)->wOdo[i] = W_ODO / ((i+1)*(i+1));
 	
 	// temporary configurations
-	//float queue[2][2] = { {0.5, 0.0}, {1, 0.0} };//{0.3, 0.0}, {0.3, 0.3}, {0., 0.3}, {0.0, 0.0} };
+	//float queue[2][2] = { {, 0.0}, {1, 0.0} };//{0.3, 0.0}, {0.3, 0.3}, {0., 0.3}, {0.0, 0.0} };
 	//Bot_Goal_Queue(*bot, 2, queue);
-	//(*bot)->explorePos[0] = 1.2;
+	//(*bot)->explorePos[0] = 0.8;
 }
 
 // determine maps that form part of local map and create if necessary
@@ -33,12 +33,17 @@ void Bot_Map_Required(struct Bot * bot) {
 		}
 	}
 	
-	for (uint8_t i = 0; i < 8; i++) {
-		if (!bot->map->neighbors[i]) {
-			float pos[2] = { bot->map->pos[0] + posMod[i][0] * MAP_SIZE, bot->map->pos[1] + posMod[i][1] * MAP_SIZE };
-			Map_Init(&(bot->map->neighbors[i]), pos);
-			bot->numMaps++;
-			Map_Reinforce(bot->map->neighbors[i]);
+	uint8_t viewIndex = Bot_Map_View(bot);
+	if (viewIndex != -1) {
+		viewIndex = (viewIndex + 7) % 8;
+		for (uint8_t i = 0; i < 3; i++) {
+			if (!bot->map->neighbors[viewIndex]) {
+				float pos[2] = { bot->map->pos[0] + posMod[viewIndex][0] * MAP_SIZE, bot->map->pos[1] + posMod[viewIndex][1] * MAP_SIZE };
+				Map_Init(&(bot->map->neighbors[viewIndex]), pos);
+				bot->numMaps++;
+				Map_Reinforce(bot->map->neighbors[viewIndex]);
+			}
+			viewIndex = (viewIndex + 1) % 8;
 		}
 	}
 }
@@ -47,10 +52,13 @@ void Bot_Map_Update(struct Bot * bot) {
 	Map_Update(bot->map, bot->pos, bot->dist);
 	
 	// only map this map and three maps in view
+	if (!bot->map) return;
 	uint8_t viewIndex = Bot_Map_View(bot);
-	Map_Update(bot->map->neighbors[viewIndex], bot->pos, bot->dist);
-	Map_Update(bot->map->neighbors[(viewIndex + 1) % 8], bot->pos, bot->dist);
-	Map_Update(bot->map->neighbors[(viewIndex + 7) % 8], bot->pos, bot->dist);
+	if (viewIndex != -1) {
+		Map_Update(bot->map->neighbors[viewIndex], bot->pos, bot->dist);
+		Map_Update(bot->map->neighbors[(viewIndex + 1) % 8], bot->pos, bot->dist);
+		Map_Update(bot->map->neighbors[(viewIndex + 7) % 8], bot->pos, bot->dist);
+	}
 }
 
 void Bot_Bias(struct Bot * bot) {
@@ -71,6 +79,7 @@ void Bot_Bias(struct Bot * bot) {
 
 // obtain map index in direction of bot's view
 uint8_t Bot_Map_View(struct Bot * bot) {
+	if (!bot->map) return -1;
 	float minAngle = M_PI;
 	uint8_t minIndex = -1;
 	for (uint8_t i = 0; i < 8; i++) {
@@ -95,12 +104,12 @@ void Bot_Pos_Update(struct Bot * bot) {
 	Odometer_Read(&bot->odoArr[bot->odoIndex], FREQ);	
 	bot->odo[0] = 0;
 	bot->odo[1] = 0;
-	for (uint8_t i = 0; i < FREQ; i++) {
-		uint8_t index = (bot->odoIndex + i) % FREQ;
+	for (uint8_t i = 0; i < ODO_LEN; i++) {
+		uint8_t index = (bot->odoIndex + i) % ODO_LEN;
 		bot->odo[0] += bot->odoArr[index][0] * bot->wOdo[i];
 		bot->odo[1] += bot->odoArr[index][1] * bot->wOdo[i];
 	}
-	bot->odoIndex = (bot->odoIndex + 1) % FREQ;
+	bot->odoIndex = (bot->odoIndex + 1) % ODO_LEN;
 	bot->odo[0] *= copysign(1.0, bot->duty[0]);
 	bot->odo[1] *= copysign(1.0, bot->duty[1]);
 	
@@ -108,7 +117,7 @@ void Bot_Pos_Update(struct Bot * bot) {
 
 	// speedier solution
 	bot->pos[3] =  0.5*(bot->odo[1] + bot->odo[0]);
-	bot->pos[4] = bot->imu[2];
+	bot->pos[4] = 0.5*((bot->odo[0] - bot->odo[1]) / CHASSIS_L + bot->imu[2]);
 	Bot_Motion_Model(bot->pos, DT);
 	//bot->pos[2] = (1 - K_MAG) * bot->pos[2] + K_MAG * bot->imu[2];
 	Bot_Map_Required(bot);
@@ -135,7 +144,7 @@ void Bot_Motion_Model(float x[UKF_N], float dt) {
 void Bot_Motor_Control(struct Bot * bot) {
 	if (bot->state == REVERSE) return;
 	if (bot->state == NAVIGATE) {
-		float e[2] = { bot->uGoal[0] - bot->uGoal[1] - bot->odo[0], bot->uGoal[0] + bot->uGoal[1] - bot->odo[1] };
+		//float e[2] = { bot->uGoal[0] - bot->uGoal[1] - bot->odo[0], bot->uGoal[0] + bot->uGoal[1] - bot->odo[1] };
 		bot->duty[0] = bot->uGoal[0] + bot->uGoal[1];// + K_UV*e[0];// - K_UW*e[1];
 		bot->duty[1] = bot->uGoal[0] - bot->uGoal[1];// + K_UV*e[1];// + K_UW*e[1]; 
 		//if (fabs(bot->duty[0]) < MIN_DC) bot->duty[0] = 0;
@@ -177,13 +186,8 @@ void Bot_Pos_Control(struct Bot * bot) {
 	// check if new path needed
 	if (getDistance(bot->goal[bot->goalIndex], bot->pos) < MIN_GOAL_DIST) {
 		bot->goalIndex++;
-		if (bot->goalIndex >= GOAL_LEN || Bot_Path_Collision(bot)) {
-			bot->state = IDLE;
-			Bot_Motor_Control(bot);
-			Bot_Explore(bot);
-			Bot_Navigate(bot);
-			bot->state = NAVIGATE;
-		} else Bot_UART_Write(bot, "new pos: (%.2f, %.2f)\r\n", bot->goal[bot->goalIndex][0], bot->goal[bot->goalIndex][1]);
+		if (Bot_Path_Collision(bot)) Bot_Explore(bot);
+		else Bot_UART_Write(bot, "new pos: (%.2f, %.2f)\r\n", bot->goal[bot->goalIndex][0], bot->goal[bot->goalIndex][1]);
 		return;
 	}
 
@@ -201,16 +205,10 @@ void Bot_Pos_Control(struct Bot * bot) {
 }
 
 // A* search algorithm
-void Bot_Navigate(struct Bot * bot) {
-	// stop first as this might take a while
-	LATACLR = _LATA_LATA3_MASK;
-	LATBCLR = _LATB_LATB4_MASK;
-	OC5RS = 0x0;
-	OC4RS = 0x0;
-	
-	// check if new exploration point needed
-	//if (getDistance(bot->pos, bot->explorePos) < MIN_GOAL_DIST) Bot_Explore(bot);
-	
+char Bot_Navigate(struct Bot * bot) {
+	//bot->goalIndex = GOAL_LEN - 1;
+	//memcpy(bot->goal[bot->goalIndex], bot->explorePos, sizeof(float) *2);
+
 	// build queues of nodes
 	struct NodeQueue openQueue = {0};
 	struct NodeQueue closedQueue = {0};
@@ -220,29 +218,38 @@ void Bot_Navigate(struct Bot * bot) {
 	
 	struct Node * node = NULL;
 	int iter = 0;
-	while (!NodeQueue_Empty(&openQueue) && iter++ < MAX_SEARCH_ITER) {
+	while (!NodeQueue_Empty(&openQueue) && iter++ <= MAX_SEARCH_ITER) {
 		unsigned int bestIndex = NodeQueue_Best(&openQueue);
 		NodeQueue_Remove(&openQueue, &node, bestIndex);
 		
 		if (node) {
-			NodeQueue_Add(&closedQueue, node);
+			if (!NodeQueue_Add(&closedQueue, node)) {
+				iter = MAX_SEARCH_ITER;
+				break;
+			}
 			//Bot_UART_Node(bot, node);
 			//delay(200000l);
 			
 			// check if goalNode
 			if (node->h < MIN_SEARCH_GOAL) {
-				Bot_Backtrack(bot, node);
+				struct Node endNode = {
+					.g=(node->g + getDistance(bot->explorePos, node->posf)),
+					.posf={bot->explorePos[0], bot->explorePos[1]},
+					.parent=node
+				};
+				bot->noPathCount = 0;
+				Bot_Backtrack(bot, &endNode);
 				NodeQueue_Destroy(&openQueue);
 				NodeQueue_Destroy(&closedQueue);
-				return;
-			} else if ((node->h + node->g) < (bestNode->h + bestNode->h)) bestNode = node;
+				return 1;
+			} else if ((node->g + node->h) < (bestNode->g + bestNode->h)) bestNode = node;
 
 			// expand neighbors
 			for (uint8_t i = 0; i < 8; i++) {
 				int newPosI[2] = { node->pos[0] + bPosMod[i][0], node->pos[1] + bPosMod[i][1] };
 				char flag = NodeQueue_Contains(&closedQueue, newPosI);
 				if (NodeQueue_Contains(&closedQueue, newPosI) == -1) {
-					float newPosF[2] = { bot->pos[0] + NAV_STEP*newPosI[0], bot->pos[1] + NAV_STEP*newPosI[1] };
+					float newPosF[2] = { initNode.posf[0] + NAV_STEP*newPosI[0], initNode.posf[1] + NAV_STEP*newPosI[1] };
 					char fObs = Map_Pos_Collide(bot->map, newPosF);
 					uint8_t nIndex = -1;
 					while (fObs == -1 && nIndex < 8) fObs = Map_Pos_Collide(bot->map->neighbors[nIndex++], newPosF);
@@ -261,7 +268,10 @@ void Bot_Navigate(struct Bot * bot) {
 								.h=getDistance(bot->explorePos, newPosF),
 								.parent=node
 							};
-							NodeQueue_Add(&openQueue, &newNode);
+							if (!NodeQueue_Add(&openQueue, &newNode)) {
+								iter = MAX_SEARCH_ITER;
+								break;
+							}
 						} else if (node->g + cost < openQueue.queue[openIndex]->g) {
 							openQueue.queue[openIndex]->g = node->g + cost;
 							openQueue.queue[openIndex]->parent = node;
@@ -273,9 +283,11 @@ void Bot_Navigate(struct Bot * bot) {
 	}
 	
 	// if not found take best route available
+	bot->noPathCount++;
 	Bot_Backtrack(bot, bestNode);
 	NodeQueue_Destroy(&openQueue);
 	NodeQueue_Destroy(&closedQueue);
+	return 0;
 	
 	// path not found, calculate new explore pos then recursive
 	//Bot_UART_Write(bot, "path not found\r\n");
@@ -285,45 +297,44 @@ void Bot_Navigate(struct Bot * bot) {
 }
 
 void Bot_Backtrack(struct Bot * bot, struct Node * node) {
-	//Bot_UART_Node(bot, node);
-	//delay(1000000l);
-	//Bot_UART_Map(bot);
-	//Bot_UART_Write(bot, "bPos: (%.2f, %2f)\r\n");
-	//delay(20000l);
-	
 	if (node == NULL) return;
 	bot->goalIndex = GOAL_LEN;
 	int count = 0;
 	while (node->parent != NULL && bot->goalIndex >= 0) {
 		memcpy(bot->goal[--bot->goalIndex], node->posf, sizeof(float) * 2);
 		node = node->parent;
-		//Bot_UART_Node(bot, node);
-		//delay(100000l);
 	}
-	char msg[BUF_LEN] = "[";
+	/*char msg[BUF_LEN] = "[";
 	for (int i = bot->goalIndex; i < GOAL_LEN; i++) snprintf(msg, BUF_LEN, "%s[%.2f, %.2f],\r\n", msg, bot->goal[i][0], bot->goal[i][1]);
 	snprintf(msg, BUF_LEN, "%s]\r\n", msg);
-	Bot_UART_Write(bot, msg);
-	//bot->state = (bot->state & ~STATE_MASK) | IDLE;
-	//delay(300000l);
+	Bot_UART_Write(bot, msg);*/
 }
 
 
 // choose a new exploration position to maximize information gain
 void Bot_Explore(struct Bot * bot) {
-	// build edge map of map in view first, then neighbors
-	//LATASET = _LATA_LATA1_MASK;
-	if (!Map_Frontier(bot->map, bot->pos, bot->explorePos)) {
-		Bot_UART_Write(bot, "path not found\r\n");
-		//Bot_Sweep(bot);
+	if (bot->noPathCount > 20) {
 		bot->state = FINISH;
+		return;
 	}
-	//Bot_UART_Map(bot);
-	//LATACLR = _LATA_LATA1_MASK;
+	bot->state = IDLE;
+	Bot_Motor_Control(bot);
+	if (bot->exploreCount++ > EXPOS_LEN) {
+		bot->exploreCount = 0;
+		Bot_Sweep(bot);
+	} else if (!Map_Frontier(bot->map, bot->pos, bot->explorePos)) {
+		Bot_UART_Write(bot, "path not found\r\n");
+		//bot->state = FINISH;
+		Bot_Sweep(bot);
+	}
+	//bot->explorePos[0] = (bot->explorePos[0]) ? 0.0 : 0.6;
+	Bot_Navigate(bot);//) bot->state = IDLE;
+	bot->state = NAVIGATE;
 }
 
 // sweep complete area
 void Bot_Sweep(struct Bot * bot) {
+	if (!bot->map) return;
 	for (uint8_t i = 0; i < 30; i++) {
 		uint8_t index[3] = { rand() % 9, rand() % MAP_UNITS, rand() % MAP_UNITS };
 		struct Map * sweepMap;
@@ -332,32 +343,31 @@ void Bot_Sweep(struct Bot * bot) {
 		Map_IndexToPos(sweepMap, bot->explorePos, &index[1]);
 		if (!Map_Check_Visited(sweepMap, bot->explorePos)) return;
 	}
-	bot->state = FINISH;
 }
 
 char Bot_Detect_Collision(struct Bot * bot) {
 	if (bot->state != NAVIGATE) return 0;
 	// check for collision
 	//float e[2] = { fabs(bot->uGoal[0] - bot->uGoal[1] - bot->odo[0]), fabs(bot->uGoal[0] + bot->uGoal[1] - bot->odo[1]) };
-	if (fabs(bot->odo[0]) < ERR_REF || fabs(bot->odo[1]) < ERR_REF) {
+	if (fabs(bot->odo[0]) < ERR_REF && fabs(bot->odo[1]) < ERR_REF) {
 		bot->collideCount++;
 		LATASET = _LATA_LATA1_MASK;
 	} else {
+		bot->inReverse = 1;
 		bot->collideCount = 0;
 		LATACLR = _LATA_LATA1_MASK;
 	}
 	if (bot->collideCount >= MAX_COL_COUNT) {
 		bot->collideCount = 0;
-		Bot_Quick_Reverse(bot);
 		return 1;
 	} 
 	
 	
 	// check if ultrasonic readings too close 
-	if (bot->pos[3] > 0.1 && bot->count % FREQ == 0) {
+	/*if (bot->pos[3] > 0.1 && bot->count % FREQ == 0) {
 		for (uint8_t i = 0; i < 3; i++)
-			if (bot->dist[i] < MIN_OBST_DIST) return 1;
-	} 
+			if (bot->dist[i] < MIN_OBST_DIST)  return 1;
+	}*/
 
 	/*
 	// check for collision on trajectory - assuming constant velocity
@@ -378,26 +388,31 @@ char Bot_Detect_Collision(struct Bot * bot) {
 
 // check if next node is occupied with new information
 char Bot_Path_Collision(struct Bot * bot) {
+	if (bot->state == NAVIGATE && bot->goalIndex >= GOAL_LEN) return 1;
 	uint8_t fObs = Map_Pos_Collide(bot->map, bot->goal[bot->goalIndex]);
-	uint8_t fIndex = 0;
-	while (fObs == -1 && fIndex < 8) fObs = Map_Pos_Collide(bot->map->neighbors[fIndex++], bot->goal[bot->goalIndex]);
-	return (fObs != 0);
+	//uint8_t fIndex = 0;
+	//while (fObs == -1 && fIndex < 8) fObs = Map_Pos_Collide(bot->map->neighbors[fIndex++], bot->goal[bot->goalIndex]);
+	return (fObs == 1);
 }
 
 void Bot_Quick_Reverse(struct Bot * bot) {
 	bot->state = REVERSE;
 	if (bot->inReverse) {
+		bot->duty[0] = -0.05;
+		bot->duty[1] = -0.05;
 		OC5RS = (int)(REVERSE_SPEED * PWM_T);
 		OC4RS = (int)(REVERSE_SPEED * PWM_T);
 		LATASET = _LATA_LATA3_MASK;
 		LATBSET = _LATB_LATB4_MASK;
 	} else {
+		bot->duty[0] = 0.05;
+		bot->duty[1] = 0.05;
 		OC5RS = (int)((1 - REVERSE_SPEED) * PWM_T);
 		OC4RS = (int)((1 - REVERSE_SPEED) * PWM_T);
 		LATACLR = _LATA_LATA3_MASK;
 		LATBCLR = _LATB_LATB4_MASK;
 	}
-	bot->reverseCount = 1;
+	bot->reverseCount = 5;
 }
 
 void Bot_Stop_Reverse(struct Bot * bot) {
@@ -406,10 +421,16 @@ void Bot_Stop_Reverse(struct Bot * bot) {
 	LATACLR = _LATA_LATA3_MASK;
 	LATBCLR = _LATB_LATB4_MASK;
 	bot->inReverse ^= 1;
+	bot->reverseCount = 0;
 	
 	Bot_Explore(bot);
-	Bot_Navigate(bot);
 	bot->state = NAVIGATE;
+}
+
+
+void Bot_Vacuum(struct Bot * bot, char turnOn) {
+	if (turnOn) OC2RS = (int)(VACUUM_SPEED * PWM_T);
+	else OC2RS = 0x0;
 }
 
 // print
@@ -448,50 +469,52 @@ void Bot_Display_Map(struct Bot * bot) {
 	}
 	
 	// obtain 4 view maps
-	uint8_t viewIndex = 2*(Bot_Map_View(bot) / 2);
-	uint8_t mapIndex = (viewIndex/2 + 2) % 4;
-	struct Map * mapArr[4];
-	mapArr[mapIndex] = bot->map;
-	mapArr[(mapIndex + 1) % 4] = bot->map->neighbors[(viewIndex+7)%8];
-	mapArr[(mapIndex + 2) % 4] = bot->map->neighbors[viewIndex];
-	mapArr[(mapIndex + 3) % 4] = bot->map->neighbors[(viewIndex+1)%8];
-	
-	uint8_t goalIndex[2] = {-1};
-	if (bot->goalIndex < GOAL_LEN) Map_PosToIndex(bot->map, goalIndex, bot->explorePos);
-	
-	OLED_ClearDisplay();
-	OLED_FillRectangle(0, 0, 4*MAP_UNITS, 4*MAP_UNITS, WHITE);
-	for (uint8_t i = 0; i < 4; i++) {
-		// find starting position
-		uint8_t y = i / 2;
-		uint8_t x = ((i - y) % 2) * 2*MAP_UNITS;
-		y *= 2*MAP_UNITS;
-		
-		// colour submap
-		if (mapArr[i] && mapArr[i]->grid) {
-			for (uint8_t j = 0; j < MAP_UNITS; j++) {
-				for (uint8_t k = 0; k < MAP_UNITS; k++) {
-					if (mapArr[i]->grid[j][k] < 1.0) OLED_DrawPixel(x + 2*j, y + 2*k, BLACK);
-					if (mapArr[i]->grid[j][k] < 0.3) OLED_DrawPixel(x + 2*j + 1, y + 2*k + 1, BLACK);
-					if (mapArr[i]->grid[j][k] < -0.3) OLED_DrawPixel(x + 2*j + 1, y + 2*k, BLACK);
-					if (mapArr[i]->grid[j][k] < -1.0) OLED_DrawPixel(x + 2*j, y + 2*k + 1, BLACK);
+	char val = Bot_Map_View(bot);
+	if (val != -1) {
+		uint8_t viewIndex = 2*(val / 2);
+		uint8_t mapIndex = (viewIndex/2 + 2) % 4;
+		struct Map * mapArr[4];
+		mapArr[mapIndex] = bot->map;
+		mapArr[(mapIndex + 1) % 4] = bot->map->neighbors[(viewIndex+7)%8];
+		mapArr[(mapIndex + 2) % 4] = bot->map->neighbors[viewIndex];
+		mapArr[(mapIndex + 3) % 4] = bot->map->neighbors[(viewIndex+1)%8];
+
+		uint8_t goalIndex[2] = {-1};
+		if (bot->goalIndex < GOAL_LEN) Map_PosToIndex(bot->map, goalIndex, bot->explorePos);
+
+		OLED_ClearDisplay();
+		OLED_FillRectangle(0, 0, 4*MAP_UNITS, 4*MAP_UNITS, WHITE);
+		for (uint8_t i = 0; i < 4; i++) {
+			// find starting position
+			uint8_t y = i / 2;
+			uint8_t x = ((i - y) % 2) * 2*MAP_UNITS;
+			y *= 2*MAP_UNITS;
+
+			// colour submap
+			if (mapArr[i] && mapArr[i]->grid) {
+				for (uint8_t j = 0; j < MAP_UNITS; j++) {
+					for (uint8_t k = 0; k < MAP_UNITS; k++) {
+						if (mapArr[i]->grid[j][k] < 1.0) OLED_DrawPixel(x + 2*j, y + 2*k, BLACK);
+						if (mapArr[i]->grid[j][k] < 0.3) OLED_DrawPixel(x + 2*j + 1, y + 2*k + 1, BLACK);
+						if (mapArr[i]->grid[j][k] < -0.3) OLED_DrawPixel(x + 2*j + 1, y + 2*k, BLACK);
+						if (mapArr[i]->grid[j][k] < -1.0) OLED_DrawPixel(x + 2*j, y + 2*k + 1, BLACK);
+					}
 				}
 			}
-		}
-		
-		// plot bot and goal position
-		if (i == mapIndex) {
-			if (goalIndex[0] != -1) {
-				OLED_Rectangle(x + 2*goalIndex[0]-2, y + 2*goalIndex[1]-2, x + 2*goalIndex[0]+2, y + 2*goalIndex[1]+2, WHITE);
-				OLED_Rectangle(x + 2*goalIndex[0]-1, y + 2*goalIndex[1]-1, x + 2*goalIndex[0]+1, y + 2*goalIndex[1]+1, BLACK);
+
+			// plot bot and goal position
+			if (i == mapIndex) {
+				if (goalIndex[0] != -1) {
+					OLED_Rectangle(x + 2*goalIndex[0]-2, y + 2*goalIndex[1]-2, x + 2*goalIndex[0]+2, y + 2*goalIndex[1]+2, WHITE);
+					OLED_Rectangle(x + 2*goalIndex[0]-1, y + 2*goalIndex[1]-1, x + 2*goalIndex[0]+1, y + 2*goalIndex[1]+1, BLACK);
+				}
+				uint8_t botIndex[2];
+				Map_PosToIndex(bot->map, botIndex, bot->pos);
+				OLED_Circle(x + 2*botIndex[0], y + 2*botIndex[1], 2, WHITE);
+				OLED_Circle(x + 2*botIndex[0], y + 2*botIndex[1], 1, BLACK);
 			}
-			uint8_t botIndex[2];
-			Map_PosToIndex(bot->map, botIndex, bot->pos);
-			OLED_Circle(x + 2*botIndex[0], y + 2*botIndex[1], 2, WHITE);
-			OLED_Circle(x + 2*botIndex[0], y + 2*botIndex[1], 1, BLACK);
 		}
 	}
-	
 	
 	float pos[2] = {0};
 	if (bot->goalIndex >= 0 && bot->goalIndex < GOAL_LEN) {
@@ -500,12 +523,13 @@ void Bot_Display_Map(struct Bot * bot) {
 	}
 	OLED_Write_Text(66, 0, "%s %d %.f%%", status, bot->time, bot->battery);
 	OLED_Write_Text(66, 10, "%.2f %.2f", bot->pos[0], bot->pos[1]);
-	OLED_Write_Text(66, 20, "%.2f", bot->pos[2]);
-	OLED_Write_Text(66, 30, "%.2f %.2f", bot->explorePos[0], bot->explorePos[1]);
-	//OLED_Write_Text(66 , 30, "%.2f %.2f", pos[0], pos[1]);
+	//OLED_Write_Text(66, 20, "%.f %d", bot->pos[2]*180.0/M_PI, bot->numMaps);
+	OLED_Write_Text(66, 20, "%.2f %.2f", bot->explorePos[0], bot->explorePos[1]);
+	OLED_Write_Text(66 , 30, "%.2f %.2f", pos[0], pos[1]);
 	//OLED_Write_Text(66, 40, "%.2f %.2f", bot->dist[0], bot->dist[1]);
 	//OLED_Write_Text(66, 50, "%.2f %d", bot->dist[2], bot->numMaps);
-	OLED_Write_Text(66, 40, "%.2f %.2f", bot->odo[0], bot->odo[1]);
+	OLED_Write_Text(66, 40, "%.2f %.2f", bot->duty[0], bot->duty[1]);
+	//OLED_Write_Text(66, 40, "%.2f %.2f", bot->odo[0], bot->odo[1]);
 	OLED_Write_Text(66, 50, "%.2f %.2f", bot->uGoal[0], bot->uGoal[1]);
 	
 	OLED_Update();

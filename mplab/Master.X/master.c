@@ -92,34 +92,33 @@ void __ISR(_TIMER_1_VECTOR, IPL3SOFT) TMR1_IntHandler() {
 	bot->count++;
 	
 	Bot_Pos_Update(bot);		// imu pos update @ 40 Hz
-	Bot_Pos_Control(bot);		
+	
+	/*if (bot->count % 2 == 0)*/ Bot_Pos_Control(bot);	 // controller update @ 20 Hz
 	
 	if (bot->count % 4 == 0) {
 		//Bot_Display_Status(bot);
 		// Bot_UART_Status(bot);
-		Bot_Detect_Collision(bot);
-		Bot_Display_Map(bot);
+		if (Bot_Detect_Collision(bot)) Bot_Quick_Reverse(bot);
+		// end reverse
+		if (bot->reverseCount) {
+			bot->reverseCount--;
+			if (!bot->reverseCount) Bot_Stop_Reverse(bot);
+		}
 	}
 	
 	if (bot->count % 10 == 0) {
 		//if ((bot->state & STATE_MASK) != INIT) 
+		if (bot->state == FINISH) LATAINV = _LATA_LATA1_MASK;
+		Bot_Display_Map(bot);
 		bot->usState = 0;
 		Ultrasonic_Trigger();	// distance reading @ 2 Hz
-		if (bot->state == FINISH) LATAINV = _LATA_LATA1_MASK;
-		if (bot->state == NAVIGATE || bot->state == REVERSE) LATBSET = _LATB_LATB11_MASK;			// activate vacuum
-		else LATBCLR = _LATB_LATB11_MASK;			// activate vacuum
+		//Bot_Vacuum(bot, (bot->state == NAVIGATE || bot->state == REVERSE));
 	}
 
 	if (bot-> count % FREQ == 0) {
 		bot->time++;
 		bot->count = 0;
 		bot->dblClickCount = 0;
-		
-		// end reverse
-		if (bot->reverseCount) {
-			bot->reverseCount--;
-			if (!bot->reverseCount) Bot_Stop_Reverse(bot);
-		}
 		
 		AD1CON1SET = _AD1CON1_SAMP_MASK;
 		//if (bot->time == 18) bot->state = (bot->state & ~STATE_MASK) | IDLE;
@@ -131,6 +130,7 @@ void __ISR(_TIMER_1_VECTOR, IPL3SOFT) TMR1_IntHandler() {
 			Bot_UART_Write(bot, "Bot state: %d\r\n", bot->state);
 			
 		}
+		if (bot->time == 50) bot->state = FINISH;
 	}
 }
 
@@ -159,11 +159,9 @@ void __ISR(_ADC_VECTOR, IPL1SOFT) ADC_IntHandler() {
 /* User */
 void __ISR(_CHANGE_NOTICE_VECTOR, IPL2SOFT) CNB_IntHandler() {
 	IFS1CLR = _IFS1_CNBIF_MASK;
-	if (!bot->dblClickCount) {
-		bot->state = (bot->state == IDLE) ? NAVIGATE : IDLE;
-		bot->dblClickCount = 1;
-		Bot_UART_Write(bot, "Bot state: %d\r\n", bot->state);
-	}
+	bot->state = (bot->state == IDLE) ? NAVIGATE : IDLE;
+	//bot->dblClickCount = 1;
+	Bot_UART_Write(bot, "Bot state: %d\r\n", bot->state);
 	/*if (!(PORTB & 0x20)) {
 		 button press occured 
 	    //if (bot->dblClickCount == 0) {

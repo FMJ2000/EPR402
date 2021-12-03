@@ -7,6 +7,7 @@ void Map_Init(struct Map ** map, float pos[2]) {
 	for (uint8_t i = 0; i < MAP_UNITS; i++)
 		for (uint8_t j = 0; j < MAP_UNITS; j++)
 			(*map)->grid[i][j] = LOG_PRIOR;
+	for (uint8_t i = 0; i < 8; i++) (*map)->neighbors[i] = NULL;
 }
 
 // auxiliary index and state space mapping functions
@@ -47,7 +48,7 @@ void Map_Reinforce(struct Map * map) {
 					map->neighbors[(i + 7) % 8] = map->neighbors[i]->neighbors[(mIndex + 2) % 8];
 					map->neighbors[i]->neighbors[(mIndex + 2) % 8]->neighbors[(i + 3) % 8] = map;
 				}
-				} else {
+			} else {
 				if (map->neighbors[i]->neighbors[(mIndex + 7) % 8]) {
 					map->neighbors[(i + 1) % 8] = map->neighbors[i]->neighbors[(mIndex + 7) % 8];
 					map->neighbors[i]->neighbors[(mIndex + 7) % 8]->neighbors[(i + 5) % 8] = map;
@@ -91,6 +92,7 @@ void Map_Cell_Update(float * cell, float dist, float z) {
 	else if (dist < z + D_2) newL = L_HIGH;
 	else if (dist < z + D_3) newL = L_HIGH - ((z + D_3) - dist) * (L_HIGH - L_MED) / (D_3 - D_2);
 	*cell += newL - LOG_PRIOR;
+	if (*cell < 2*L_LOW) *cell = 2*L_LOW;
 }
 
 void Map_Update_Visit(struct Map * map, float pos[2]) {
@@ -121,11 +123,11 @@ char Map_Contains(struct Map * map, float pos[2]) {
 char Map_Pos_Collide(struct Map * map, float pos[2]) {
 	uint8_t index[2];
 	if (!map || !Map_PosToIndex(map, index, pos)) return -1;
-	if (map->grid[index[0]][index[1]] > L_HIGH) return 1;
+	if (map->grid[index[0]][index[1]] > L_MEDHIGH) return 1;
 	for (uint8_t i = 0; i < 4; i++) {
 		uint8_t newIndex[2] = { index[0] + posMod[2*i+1][0], index[1] + posMod[2*i+1][1] };
 		if (newIndex[0] >= 0 && newIndex[0] < MAP_UNITS && newIndex[1] >= 0 && newIndex[1] < MAP_UNITS) {
-			if (map->grid[newIndex[0]][newIndex[1]] > L_HIGH) return 1;
+			if (map->grid[newIndex[0]][newIndex[1]] > L_MEDHIGH) return 1;
 		}
 	}
 	return 0;
@@ -233,10 +235,11 @@ void Map_SafeZone(struct Map * map, char safeGrid[3*MAP_UNITS][3*MAP_UNITS]) {
 
 char Map_Frontier(struct Map * map, float botPos[3], float exPos[2])  {	
 	// get unoccupied and unvisited blocks in supermap
-	char safeGrid[3*MAP_UNITS][3*MAP_UNITS] = {{0}};
+	if (!map) return 0;
+	char safeGrid[3*MAP_UNITS][3*MAP_UNITS] = {{1}};
 	Map_SafeZone(map, safeGrid);
 	float startPos[2] = { map->pos[0] - MAP_SIZE, map->pos[1] + MAP_SIZE };
-	uint8_t oldIndex[2] = { (uint8_t)((exPos[0] - startPos[0]) / MAP_RES), (uint8_t)((startPos[1] - exPos[1]) / MAP_RES) };
+	//uint8_t oldIndex[2] = { (uint8_t)((exPos[0] - startPos[0]) / MAP_RES), (uint8_t)((startPos[1] - exPos[1]) / MAP_RES) };
 	
 	// determine most viable point first in current map then in global map
 	uint8_t bestIndex[2] = {0};
@@ -248,9 +251,9 @@ char Map_Frontier(struct Map * map, float botPos[3], float exPos[2])  {
 				randIndex[0] = rand() % (3*MAP_UNITS);
 				randIndex[1] = rand() % (3*MAP_UNITS);
 			}
-			if (randIndex[0] != oldIndex[0] && randIndex[1] != oldIndex[1]) {
-				if (safeGrid[randIndex[0]][randIndex[1]]) {
-					float randPos[2] = { startPos[0] + randIndex[0] * MAP_RES, startPos[1] - randIndex[1] * MAP_RES };
+			if (safeGrid[randIndex[0]][randIndex[1]]) {
+				float randPos[2] = { startPos[0] + randIndex[0] * MAP_RES, startPos[1] - randIndex[1] * MAP_RES };
+				if (getDistance(exPos, randPos) > 0.2) {
 					float val = powf(getAngle(botPos, randPos), 2) / powf(getDistance(botPos, randPos), 2);
 					if (val < minVal) {
 						minVal = val;

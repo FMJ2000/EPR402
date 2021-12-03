@@ -22,11 +22,12 @@
 #define MAX_US_DIST 0.9
 
 // log odds update
-#define D_1 0.04
-#define D_2 0.16
-#define D_3 0.2
+#define D_1 0.06
+#define D_2 0.22
+#define D_3 0.32
 #define L_LOW -0.847298
 #define L_MED 0.0
+#define L_MEDHIGH 0.619039
 #define L_HIGH 1.386294
 
 // frontier detection

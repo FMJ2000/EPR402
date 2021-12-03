@@ -7,10 +7,10 @@
 #include <stdarg.h>
 #include <math.h>
 
-#define Q_LEN 512
-#define NAV_STEP 0.08
-#define NAV_SQRT 0.113137
-#define MIN_SEARCH_GOAL 0.1
+#define Q_LEN 360
+#define NAV_STEP 0.15
+#define NAV_SQRT 0.21213203
+#define MIN_SEARCH_GOAL 0.11
 
 // path planning node
 struct Node {

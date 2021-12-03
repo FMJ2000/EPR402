@@ -26,7 +26,8 @@
 #define SIGMA_Q 0.9
 #define SIGMA_R 0.05
 #define K_OLD 0.5
-#define W_ODO 0.6265023354055452
+#define W_ODO 0.769230769
+#define ODO_LEN 5
 
 // controller
 #define PWM_T 0xFFF
@@ -46,7 +47,7 @@
 #define K_RD 0.001
 #define K_UV 0.2
 #define K_UW 0.2
-#define MIN_GOAL_DIST 0.16
+#define MIN_GOAL_DIST 0.08
 #define MIN_DC 0.08
 #define INTEGRAL_LEN 40
 #define TURN_REF 0.6981318
@@ -54,18 +55,20 @@
 #define FORWARD_CONST 0.18
 
 // path planning
-#define MAX_COL_COUNT 5
+#define MAX_COL_COUNT 10
 #define V_REF 0.1
 #define W_REF 0.06
-#define NAV_STEP 0.08
-#define NAV_SQRT 0.113137
-#define MIN_SEARCH_GOAL 0.1
+#define NAV_STEP 0.15
+#define NAV_SQRT 0.21213203
+#define MIN_SEARCH_GOAL 0.11
 #define GOAL_LEN 256
-#define MAX_SEARCH_ITER 512
+#define MAX_SEARCH_ITER 128
 #define MIN_OBST_DIST 0.05
 #define VISIT_COST 0.4
 #define REVERSE_SPEED 0.82
+#define VACUUM_SPEED 0.8
 #define ERR_REF 0.01
+#define EXPOS_LEN 5
 
 // sensors
 #define SOUND_SPEED 3.3e-4              // TMR5*SOUND_SPEED for distance
@@ -108,10 +111,10 @@ struct Bot {
 	// sensors
 	float dist[3];							// latest distance readings
 	float imu[4];								// imu reading: ax, ay, gz
-	float odoArr[FREQ][2];								// odometry reading
+	float odoArr[ODO_LEN][2];								// odometry reading
 	float odo[2];
 	uint8_t odoIndex;
-	float wOdo[FREQ];
+	float wOdo[ODO_LEN];
 	uint8_t usState;
 	unsigned int usCount;
 	float asa[2];
@@ -147,6 +150,8 @@ struct Bot {
 	long long time;
 	uint8_t count;
 	uint8_t dblClickCount;
+    uint8_t noPathCount;
+    uint8_t exploreCount;
 	unsigned char buf[BUF_LEN];
 };
 
@@ -162,7 +167,7 @@ void Bot_Motor_Control(struct Bot * bot);
 void Bot_Pos_Control(struct Bot * bot);
 
 void Bot_Goal_Queue(struct Bot * bot, uint8_t len, float queue[len][2]);
-void Bot_Navigate(struct Bot * bot);
+char Bot_Navigate(struct Bot * bot);
 void Bot_Backtrack(struct Bot * bot, struct Node * node);
 void Bot_Explore(struct Bot * bot);
 void Bot_Sweep(struct Bot * bot);
@@ -171,6 +176,7 @@ char Bot_Detect_Collision(struct Bot * bot);
 char Bot_Path_Collision(struct Bot * bot);
 void Bot_Quick_Reverse(struct Bot * bot);
 void Bot_Stop_Reverse(struct Bot * bot);
+void Bot_Vacuum(struct Bot * bot, char turnOn);
 
 void Bot_Display_Status(struct Bot * bot);
 void Bot_Display_Map(struct Bot * bot);
