@@ -66,7 +66,7 @@
 #define MIN_OBST_DIST 0.05
 #define VISIT_COST 0.4
 #define REVERSE_SPEED 0.82
-#define VACUUM_SPEED 0.8
+#define VACUUM_SPEED 0.6
 #define ERR_REF 0.01
 #define EXPOS_LEN 5
 
@@ -75,7 +75,7 @@
 #define K_MAG 0.2
 
 // auxiliary
-#define BUF_LEN 2048
+#define BUF_LEN 2700
 #define OLED_LINE_LEN 24
 
 // state
@@ -187,6 +187,7 @@ void Bot_UART_Map(struct Bot * bot);
 void Bot_UART_Write(struct Bot * bot, char * format, ...);
 void Mat_Print(struct Bot * bot, uint8_t rows, uint8_t cols, float mat[rows][cols], char * title);
 void Mat_Print_Char(struct Bot * bot, uint8_t rows, uint8_t cols, char mat[rows][cols], char * title);
+void Map_Print_String(struct Bot * bot, struct Map * map);
 void Vec_Print(struct Bot * bot, uint8_t cols, float vec[cols], char * title);
 
 #endif

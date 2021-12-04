@@ -65,7 +65,7 @@ int main() {
 	OLED_ClearDisplay();
 	OLED_Write_Text(0, 0, "imu %d, mag %d", whoami[0], whoami[1]);
 	OLED_Update();
-	Bot_UART_Write(bot, "Bot init...\r\n\n");
+	//Bot_UART_Write(bot, "Bot init...\r\n\n");
 	
 	T1CONSET = _T1CON_ON_MASK;			// start bot
 	LATASET = _LATA_LATA1_MASK;
@@ -112,7 +112,7 @@ void __ISR(_TIMER_1_VECTOR, IPL3SOFT) TMR1_IntHandler() {
 		Bot_Display_Map(bot);
 		bot->usState = 0;
 		Ultrasonic_Trigger();	// distance reading @ 2 Hz
-		//Bot_Vacuum(bot, (bot->state == NAVIGATE || bot->state == REVERSE));
+		Bot_Vacuum(bot, (bot->state == NAVIGATE || bot->state == REVERSE));
 	}
 
 	if (bot-> count % FREQ == 0) {
@@ -121,16 +121,16 @@ void __ISR(_TIMER_1_VECTOR, IPL3SOFT) TMR1_IntHandler() {
 		bot->dblClickCount = 0;
 		
 		AD1CON1SET = _AD1CON1_SAMP_MASK;
-		//if (bot->time == 18) bot->state = (bot->state & ~STATE_MASK) | IDLE;
-		if (bot->time == 3) {
+		if (bot->time == 15) {
 			for (uint8_t i = 0; i < 3; i++) bot->bias[i] /= bot->numBias;
 			bot->bias[2] *= M_PI / 180.0;
-			//Bot_UART_Map(bot);
 			bot->state = NAVIGATE;
-			Bot_UART_Write(bot, "Bot state: %d\r\n", bot->state);
-			
+			//Bot_UART_Write(bot, "Bot state: %d\r\n", bot->state);
 		}
-		if (bot->time == 50) bot->state = FINISH;
+		if (bot->time == 65) {
+			bot->state = FINISH;
+			Bot_UART_Map(bot);
+		}
 	}
 }
 
@@ -161,7 +161,7 @@ void __ISR(_CHANGE_NOTICE_VECTOR, IPL2SOFT) CNB_IntHandler() {
 	IFS1CLR = _IFS1_CNBIF_MASK;
 	bot->state = (bot->state == IDLE) ? NAVIGATE : IDLE;
 	//bot->dblClickCount = 1;
-	Bot_UART_Write(bot, "Bot state: %d\r\n", bot->state);
+	//Bot_UART_Write(bot, "Bot state: %d\r\n", bot->state);
 	/*if (!(PORTB & 0x20)) {
 		 button press occured 
 	    //if (bot->dblClickCount == 0) {
