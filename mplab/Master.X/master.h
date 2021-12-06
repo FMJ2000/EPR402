@@ -24,8 +24,11 @@
 #define US_TRIG_T 640           // ultrasonic trigger
 #define US_SENSORS 3
 #define SENSOR_OFFSET 40. * M_PI / 180.  // angle offset between two sensors
-#define SENSOR_ANGLE 20. * M_PI / 180.
-#define MAX_US_DIST 0.9
+#define SENSOR_ANGLE 12. * M_PI / 180.
+#define MAX_US_DIST 0.6
+#define INIT_T 12
+#define EXEC_T 142
+#define VAC_T 20
 
 /* static global variables/constants */
 static struct Bot * bot;

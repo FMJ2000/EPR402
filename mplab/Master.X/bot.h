@@ -26,18 +26,19 @@
 #define SIGMA_Q 0.9
 #define SIGMA_R 0.05
 #define K_OLD 0.5
+#define K_ODO 0.4
 #define W_ODO 0.769230769
 #define ODO_LEN 5
 
 // controller
 #define PWM_T 0xFFF
 #define PWM_V 32
-#define WHEEL_R 0.032
+#define WHEEL_R 0.036
 #define WHEEL_HOLES 20.0
 #define CHASSIS_L 0.15
 #define K_DO 0.36
 #define K_DA 0.02
-#define K_RO 0.9
+#define K_RO 0.7
 #define K_RA 0.5
 #define K_DP 0.8
 #define K_DI 0.002
@@ -55,7 +56,7 @@
 #define FORWARD_CONST 0.18
 
 // path planning
-#define MAX_COL_COUNT 10
+#define MAX_COL_COUNT 5
 #define V_REF 0.1
 #define W_REF 0.06
 #define NAV_STEP 0.15
@@ -64,15 +65,15 @@
 #define GOAL_LEN 256
 #define MAX_SEARCH_ITER 128
 #define MIN_OBST_DIST 0.05
-#define VISIT_COST 0.4
-#define REVERSE_SPEED 0.82
-#define VACUUM_SPEED 0.6
-#define ERR_REF 0.01
+#define VISIT_COST 0.2
+#define REVERSE_SPEED 0.84
+#define VACUUM_SPEED 1
+#define ERR_REF 0.008
 #define EXPOS_LEN 5
 
 // sensors
 #define SOUND_SPEED 3.3e-4              // TMR5*SOUND_SPEED for distance
-#define K_MAG 0.2
+#define K_MAG 1
 
 // auxiliary
 #define BUF_LEN 2700
@@ -81,9 +82,10 @@
 // state
 #define INIT 0
 #define IDLE 1
-#define NAVIGATE 2
+#define FINISH 2
 #define REVERSE 3
-#define FINISH 4
+#define NAVIGATE 4
+#define VACUUM 5
 
 // battery
 #define ADC_MAX 192
@@ -173,10 +175,9 @@ void Bot_Explore(struct Bot * bot);
 void Bot_Sweep(struct Bot * bot);
 
 char Bot_Detect_Collision(struct Bot * bot);
-char Bot_Path_Collision(struct Bot * bot);
 void Bot_Quick_Reverse(struct Bot * bot);
 void Bot_Stop_Reverse(struct Bot * bot);
-void Bot_Vacuum(struct Bot * bot, char turnOn);
+void Bot_Vacuum(char turnOn);
 
 void Bot_Display_Status(struct Bot * bot);
 void Bot_Display_Map(struct Bot * bot);
@@ -187,7 +188,7 @@ void Bot_UART_Map(struct Bot * bot);
 void Bot_UART_Write(struct Bot * bot, char * format, ...);
 void Mat_Print(struct Bot * bot, uint8_t rows, uint8_t cols, float mat[rows][cols], char * title);
 void Mat_Print_Char(struct Bot * bot, uint8_t rows, uint8_t cols, char mat[rows][cols], char * title);
-void Map_Print_String(struct Bot * bot, struct Map * map);
+void Map_Print_String(struct Bot * bot, int index, struct Map * map);
 void Vec_Print(struct Bot * bot, uint8_t cols, float vec[cols], char * title);
 
 #endif

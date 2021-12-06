@@ -63,7 +63,7 @@ void Map_Reinforce(struct Map * map) {
 }
 
 // update log odds probability given distance measurement
-void Map_Update(struct Map * map, float pos[3], float dist[US_SENSORS]) {
+void Map_Update(struct Map * map, float pos[3], float dist[US_SENSORS], char multiplier) {
 	if (!map) return;
 	// calculate robot sensor angles
 	float sensorAngles[US_SENSORS] = { SENSOR_O, 0, -SENSOR_O };//{ normAngle(pos[2] + SENSOR_O), pos[2], normAngle(pos[2] - SENSOR_O) };
@@ -75,7 +75,7 @@ void Map_Update(struct Map * map, float pos[3], float dist[US_SENSORS]) {
 			float cellAngle = getAngle(pos, cellPos);
 			for (uint8_t k = 0; k < US_SENSORS; k++) {
 				if (fabs(sensorAngles[k] - cellAngle) <= SENSOR_A) {
-					Map_Cell_Update(&map->grid[i][j], getDistance(cellPos, pos), dist[k]);
+					Map_Cell_Update(&map->grid[i][j], getDistance(cellPos, pos), dist[k], multiplier);
 					break;
 				}
 			}
@@ -84,15 +84,16 @@ void Map_Update(struct Map * map, float pos[3], float dist[US_SENSORS]) {
 }
 
 // update cell occupancy based on sensor data
-void Map_Cell_Update(float * cell, float dist, float z) {
-	if (dist > MAX_US_DIST) return;
+void Map_Cell_Update(float * cell, float dist, float z, char multiplier) {
+	if (dist < MIN_US_DIST || dist > MAX_US_DIST) return;
 	float newL = L_MED;
 	if (dist < z - D_1) newL = L_LOW;
-	else if (dist < z + D_1) newL = L_LOW + (dist - (z - D_1)) * (L_HIGH - L_LOW) / (2*D_1);
-	else if (dist < z + D_2) newL = L_HIGH;
-	else if (dist < z + D_3) newL = L_HIGH - ((z + D_3) - dist) * (L_HIGH - L_MED) / (D_3 - D_2);
+	else if (dist < z + D_1) newL = L_LOW + (dist - (z - D_1)) * (multiplier*L_HIGH - L_LOW) / (2*D_1);
+	else if (dist < z + D_2) newL = multiplier*L_HIGH;
+	else if (dist < z + D_3) newL = multiplier*L_HIGH - ((z + D_3) - dist) * (multiplier*L_HIGH - L_MED) / (D_3 - D_2);
 	*cell += newL - LOG_PRIOR;
 	if (*cell < 2*L_LOW) *cell = 2*L_LOW;
+	if (*cell > 4*L_HIGH) *cell = 4*L_HIGH;
 }
 
 void Map_Update_Visit(struct Map * map, float pos[2]) {
@@ -244,26 +245,32 @@ char Map_Frontier(struct Map * map, float botPos[3], float exPos[2])  {
 	// determine most viable point first in current map then in global map
 	uint8_t bestIndex[2] = {0};
 	float minVal = 1000;
-	for (uint8_t i = 0; i < 2; i++) {
-		for (uint8_t j = 0; j < FRONTIER_TRIES; j++) {
-			uint8_t randIndex[2] = { MAP_UNITS + rand() % MAP_UNITS, MAP_UNITS + rand() % MAP_UNITS };
-			if (i) {
-				randIndex[0] = rand() % (3*MAP_UNITS);
-				randIndex[1] = rand() % (3*MAP_UNITS);
-			}
-			if (safeGrid[randIndex[0]][randIndex[1]]) {
-				float randPos[2] = { startPos[0] + randIndex[0] * MAP_RES, startPos[1] - randIndex[1] * MAP_RES };
-				if (getDistance(exPos, randPos) > 0.2) {
-					float val = powf(getAngle(botPos, randPos), 2) / powf(getDistance(botPos, randPos), 2);
-					if (val < minVal) {
-						minVal = val;
-						memcpy(bestIndex, randIndex, sizeof(float) * 2);
-						if (minVal < FRONTIER_MIN) break;
-					}
-				}
+	for (uint8_t i = 0; i < FRONTIER_TRIES; i++) {
+		int randVal[2] = { rand(), rand() };
+		uint8_t randIndex[2];
+		if (safeGrid[randVal[0] % (3*MAP_UNITS)][randVal[1] % (3*MAP_UNITS)]) {
+			randIndex[0] = randVal[0] % (3*MAP_UNITS);
+			randIndex[1] = randVal[1] % (3*MAP_UNITS);
+		} else if (safeGrid[randVal[1] % (3*MAP_UNITS)][randVal[0] % (3*MAP_UNITS)]) {
+			randIndex[0] = randVal[1] % (3*MAP_UNITS);
+			randIndex[1] = randVal[0] % (3*MAP_UNITS);
+		} else if (safeGrid[MAP_UNITS + randVal[0] % MAP_UNITS][MAP_UNITS + randVal[1] % MAP_UNITS]) {
+			randIndex[0] = MAP_UNITS + randVal[0] % MAP_UNITS;
+			randIndex[1] = MAP_UNITS + randVal[1] % MAP_UNITS;
+		} else if (safeGrid[MAP_UNITS + randVal[1] % MAP_UNITS][MAP_UNITS + randVal[0] % MAP_UNITS]) {
+			randIndex[0] = MAP_UNITS + randVal[1] % MAP_UNITS;
+			randIndex[1] = MAP_UNITS + randVal[0] % MAP_UNITS;
+		} else continue;
+		
+		float randPos[2] = { startPos[0] + randIndex[0] * MAP_RES, startPos[1] - randIndex[1] * MAP_RES };
+		if (getDistance(exPos, randPos) > FRONTIER_DIST) {
+			float val = powf(getAngle(botPos, randPos), 2) / powf(getDistance(botPos, randPos), 2);
+			if (val < minVal) {
+				minVal = val;
+				memcpy(bestIndex, randIndex, sizeof(float) * 2);
+				if (minVal < FRONTIER_MIN) break;
 			}
 		}
-		if (minVal < FRONTIER_MIN) break;
 	}
 	if (minVal == 1000) return 0;
 	

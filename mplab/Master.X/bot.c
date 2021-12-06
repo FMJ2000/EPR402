@@ -40,6 +40,7 @@ void Bot_Map_Required(struct Bot * bot) {
 			if (!bot->map->neighbors[viewIndex]) {
 				float pos[2] = { bot->map->pos[0] + posMod[viewIndex][0] * MAP_SIZE, bot->map->pos[1] + posMod[viewIndex][1] * MAP_SIZE };
 				Map_Init(&(bot->map->neighbors[viewIndex]), pos);
+				bot->map->neighbors[viewIndex]->neighbors[(viewIndex + 4) % 8] = bot->map;
 				bot->numMaps++;
 				Map_Reinforce(bot->map->neighbors[viewIndex]);
 			}
@@ -49,15 +50,15 @@ void Bot_Map_Required(struct Bot * bot) {
 }
 
 void Bot_Map_Update(struct Bot * bot) {
-	Map_Update(bot->map, bot->pos, bot->dist);
+	Map_Update(bot->map, bot->pos, bot->dist, 1);
 	
 	// only map this map and three maps in view
 	if (!bot->map) return;
 	uint8_t viewIndex = Bot_Map_View(bot);
 	if (viewIndex != -1) {
-		Map_Update(bot->map->neighbors[viewIndex], bot->pos, bot->dist);
-		Map_Update(bot->map->neighbors[(viewIndex + 1) % 8], bot->pos, bot->dist);
-		Map_Update(bot->map->neighbors[(viewIndex + 7) % 8], bot->pos, bot->dist);
+		Map_Update(bot->map->neighbors[viewIndex], bot->pos, bot->dist, 1);
+		Map_Update(bot->map->neighbors[(viewIndex + 1) % 8], bot->pos, bot->dist, 1);
+		Map_Update(bot->map->neighbors[(viewIndex + 7) % 8], bot->pos, bot->dist, 1);
 	}
 }
 
@@ -113,13 +114,13 @@ void Bot_Pos_Update(struct Bot * bot) {
 	bot->odo[0] *= copysign(1.0, bot->duty[0]);
 	bot->odo[1] *= copysign(1.0, bot->duty[1]);
 	
-	if (bot->state != NAVIGATE && bot->state != REVERSE) return;
+	if (bot->state <= FINISH) return;
 
 	// speedier solution
 	bot->pos[3] =  0.5*(bot->odo[1] + bot->odo[0]);
-	bot->pos[4] = 0.5*((bot->odo[0] - bot->odo[1]) / CHASSIS_L + bot->imu[2]);
+	bot->pos[4] = K_ODO*((bot->odo[0] - bot->odo[1]) / CHASSIS_L) + (1-K_ODO)*bot->imu[2];
 	Bot_Motion_Model(bot->pos, DT);
-	//bot->pos[2] = (1 - K_MAG) * bot->pos[2] + K_MAG * bot->imu[2];
+	//bot->pos[2] = (1 - K_MAG) * bot->pos[2] + K_MAG * bot->imu[4];
 	Bot_Map_Required(bot);
 	Map_Update_Visit(bot->map, bot->pos);
 }
@@ -143,7 +144,7 @@ void Bot_Motion_Model(float x[UKF_N], float dt) {
 // motor controller at 40 Hz
 void Bot_Motor_Control(struct Bot * bot) {
 	if (bot->state == REVERSE) return;
-	if (bot->state == NAVIGATE) {
+	if (bot->state >= NAVIGATE) {
 		//float e[2] = { bot->uGoal[0] - bot->uGoal[1] - bot->odo[0], bot->uGoal[0] + bot->uGoal[1] - bot->odo[1] };
 		bot->duty[0] = bot->uGoal[0] + bot->uGoal[1];// + K_UV*e[0];// - K_UW*e[1];
 		bot->duty[1] = bot->uGoal[0] - bot->uGoal[1];// + K_UV*e[1];// + K_UW*e[1]; 
@@ -178,7 +179,7 @@ void Bot_Motor_Control(struct Bot * bot) {
 
 // position controller at 4 Hz
 void Bot_Pos_Control(struct Bot * bot) {
-	if (bot->state != NAVIGATE) {
+	if (bot->state < NAVIGATE) {
 		Bot_Motor_Control(bot);
 		return;
 	}
@@ -186,7 +187,7 @@ void Bot_Pos_Control(struct Bot * bot) {
 	// check if new path needed
 	if (getDistance(bot->goal[bot->goalIndex], bot->pos) < MIN_GOAL_DIST) {
 		bot->goalIndex++;
-		if (Bot_Path_Collision(bot)) Bot_Explore(bot);
+		if (bot->goalIndex >= GOAL_LEN) Bot_Explore(bot);
 		return;
 	}
 
@@ -312,15 +313,18 @@ void Bot_Backtrack(struct Bot * bot, struct Node * node) {
 
 // choose a new exploration position to maximize information gain
 void Bot_Explore(struct Bot * bot) {
+	if (bot->state < REVERSE) return;
 	LATASET = _LATA_LATA1_MASK;
 	if (bot->noPathCount > 20) {
 		bot->state = FINISH;
+		Bot_Motor_Control(bot);
 		Bot_UART_Map(bot);
 		return;
 	}
+	char oldState = (bot->state == REVERSE) ? NAVIGATE : bot->state;
 	bot->state = IDLE;
 	Bot_Motor_Control(bot);
-	if (bot->exploreCount++ > EXPOS_LEN) {
+	if (bot->exploreCount++ >= EXPOS_LEN) {
 		bot->exploreCount = 0;
 		Bot_Sweep(bot);
 	} else if (!Map_Frontier(bot->map, bot->pos, bot->explorePos)) {
@@ -329,20 +333,20 @@ void Bot_Explore(struct Bot * bot) {
 	}
 	//bot->explorePos[0] = (bot->explorePos[0]) ? 0.0 : 0.6;
 	Bot_Navigate(bot);//) bot->state = IDLE;
-	bot->state = NAVIGATE;
+	bot->state = oldState;
 	LATACLR = _LATA_LATA1_MASK;
 }
 
 // sweep complete area
 void Bot_Sweep(struct Bot * bot) {
 	if (!bot->map) return;
-	for (uint8_t i = 0; i < 30; i++) {
+	for (uint8_t i = 0; i < FRONTIER_TRIES; i++) {
 		uint8_t index[3] = { rand() % 9, rand() % MAP_UNITS, rand() % MAP_UNITS };
 		struct Map * sweepMap;
 		if (index[0]) sweepMap = bot->map->neighbors[index[0] - 1];
 		else sweepMap = bot->map;
 		Map_IndexToPos(sweepMap, bot->explorePos, &index[1]);
-		if (!Map_Check_Visited(sweepMap, bot->explorePos)) return;
+		if (Map_Pos_Collide(sweepMap, bot->explorePos) != 1 && !Map_Check_Visited(sweepMap, bot->explorePos) && getDistance(bot->explorePos, bot->pos) > MAX_US_DIST) return;
 	}
 }
 
@@ -358,40 +362,17 @@ char Bot_Detect_Collision(struct Bot * bot) {
 	}
 	if (bot->collideCount >= MAX_COL_COUNT) {
 		bot->collideCount = 0;
+		float dist[3] = {0, MIN_US_DIST, 0};
+		Map_Update(bot->map, bot->pos, dist, 1);
+		Bot_Quick_Reverse(bot);
 		return 1;
 	} 
 	
-	
-	// check if ultrasonic readings too close 
-	/*if (bot->pos[3] > 0.1 && bot->count % FREQ == 0) {
-		for (uint8_t i = 0; i < 3; i++)
-			if (bot->dist[i] < MIN_OBST_DIST)  return 1;
-	}*/
-
-	/*
-	// check for collision on trajectory - assuming constant velocity
-	float xt[3] = { bot->pos[0], bot->pos[1], bot->pos[2] };
-	for (uint8_t i = 0; i < 10; i++) {
-		xt[2] += bot->pos[4]*DT_IMU;
-		xt[0] += bot->pos[3]*cos(xt[2])*DT_IMU;
-		xt[1] += bot->pos[3]*sin(xt[2])*DT_IMU;
-		char fObs = Map_Pos_Collide(bot->map, xt);
-		uint8_t nIndex = 0;
-		//while (fObs == -1 && nIndex < 8) fObs = Map_Pos_Collide(bot->map->neighbors[nIndex++], xt);
-		if (fObs == 1) return 1;
+	if (Map_Pos_Collide(bot->map, bot->goal[bot->goalIndex]) == 1) {
+		Bot_Explore(bot);
+		return 1;
 	}
-	 * */
-
 	return 0;
-}
-
-// check if next node is occupied with new information
-char Bot_Path_Collision(struct Bot * bot) {
-	if (bot->state == NAVIGATE && bot->goalIndex >= GOAL_LEN) return 1;
-	uint8_t fObs = Map_Pos_Collide(bot->map, bot->goal[bot->goalIndex]);
-	//uint8_t fIndex = 0;
-	//while (fObs == -1 && fIndex < 8) fObs = Map_Pos_Collide(bot->map->neighbors[fIndex++], bot->goal[bot->goalIndex]);
-	return (fObs == 1);
 }
 
 void Bot_Quick_Reverse(struct Bot * bot) {
@@ -411,7 +392,7 @@ void Bot_Quick_Reverse(struct Bot * bot) {
 		LATACLR = _LATA_LATA3_MASK;
 		LATBCLR = _LATB_LATB4_MASK;
 	}
-	bot->reverseCount = 5;
+	bot->reverseCount = 7;
 }
 
 void Bot_Stop_Reverse(struct Bot * bot) {
@@ -427,7 +408,7 @@ void Bot_Stop_Reverse(struct Bot * bot) {
 }
 
 
-void Bot_Vacuum(struct Bot * bot, char turnOn) {
+void Bot_Vacuum(char turnOn) {
 	if (turnOn) OC2RS = (int)(VACUUM_SPEED * PWM_T);
 	else OC2RS = 0x0;
 }
@@ -464,6 +445,7 @@ void Bot_Display_Map(struct Bot * bot) {
 		case IDLE: strcpy(status, "IDL"); break;
 		case NAVIGATE: strcpy(status, "NAV"); break;
 		case REVERSE: strcpy(status, "REV"); break;
+		case VACUUM: strcpy(status, "VAC"); break;
 		case FINISH: strcpy(status, "FIN"); break;
 	}
 	
@@ -571,13 +553,13 @@ void Bot_UART_Node(struct Bot * bot, struct Node * node) {
 }
 
 void Bot_UART_Map(struct Bot * bot) {
+	T1CONCLR = _T1CON_ON_MASK;			// start bot
 	Bot_UART_Write(bot, "%.2f,%.2f,%.2f,%.2f\r\n", bot->pos[0], bot->pos[1], bot->map->pos[0], bot->map->pos[1]);
-	delay(40000);
-	Map_Print_String(bot, bot->map);
-	delay(2000000);
-	for (uint8_t i = 0; i < 8; i++) {
-		Map_Print_String(bot, bot->map);
-	}
+	delay(200000);
+	Map_Print_String(bot, 0, bot->map);
+	for (uint8_t i = 0; i < 8; i++) Map_Print_String(bot, i+1, bot->map->neighbors[i]);
+	Bot_UART_Write(bot, "{SS}\r\n");
+	T1CONSET = _T1CON_ON_MASK;			// start bot
 }
 
 void Bot_UART_Write(struct Bot * bot, char * format, ...) {
@@ -619,9 +601,10 @@ void Mat_Print_Char(struct Bot * bot, uint8_t rows, uint8_t cols, char mat[rows]
 	Bot_UART_Write(bot, msg);
 }
 
-void Map_Print_String(struct Bot * bot, struct Map * map) {
+void Map_Print_String(struct Bot * bot, int index, struct Map * map) {
 	if (!map) return;
 	char msg[BUF_LEN] = {0};
+	snprintf(msg, BUF_LEN, "%d;", index);
 	int len = 0;
 	
 	// grid
@@ -638,8 +621,10 @@ void Map_Print_String(struct Bot * bot, struct Map * map) {
 			len = snprintf(msg, BUF_LEN, "%s%d,", msg, map->visited[i][j]);
 		}
 	}
-	snprintf(msg, BUF_LEN, "%s\r\n", msg);
+	msg[len-1] = '\r';
+	snprintf(msg, BUF_LEN, "%s\n", msg);
 	Bot_UART_Write(bot, msg);
+	delay(3000000);
 }
 
 void Vec_Print(struct Bot * bot, uint8_t cols, float vec[cols], char * title) {

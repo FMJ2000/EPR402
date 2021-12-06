@@ -6,9 +6,15 @@
             <file>file:/home/martin/Documents/2021/EPR402/EPR402/mplab/Master.X/master.h</file>
             <file>file:/home/martin/Documents/2021/EPR402/EPR402/mplab/Master.X/map.c</file>
             <file>file:/home/martin/Documents/2021/EPR402/EPR402/mplab/Master.X/map.h</file>
+            <file>file:/home/martin/Documents/2021/EPR402/EPR402/mplab/Master.X/oled.h</file>
             <file>file:/home/martin/Documents/2021/EPR402/EPR402/mplab/Master.X/bot.c</file>
             <file>file:/home/martin/Documents/2021/EPR402/EPR402/mplab/Master.X/bot.h</file>
             <file>file:/home/martin/Documents/2021/EPR402/EPR402/mplab/Master.X/node.h</file>
+            <file>file:/home/martin/Documents/2021/EPR402/EPR402/mplab/Master.X/imu.c</file>
+            <file>file:/home/martin/Documents/2021/EPR402/EPR402/mplab/Master.X/periph.h</file>
+            <file>file:/home/martin/Documents/2021/EPR402/EPR402/mplab/Master.X/node.c</file>
+            <file>file:/home/martin/Documents/2021/EPR402/EPR402/mplab/Master.X/periph.c</file>
+            <file>file:/home/martin/Documents/2021/EPR402/EPR402/mplab/Master.X/aux.c</file>
             <file>file:/home/martin/Documents/2021/EPR402/EPR402/mplab/Master.X/master.c</file>
         </group>
     </open-files>

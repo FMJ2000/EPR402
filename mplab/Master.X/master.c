@@ -50,7 +50,6 @@
 
 int main() {
 	delay(150000l);
-	//LATBSET = _LATB_LATB11_MASK;			// activate vacuum
 	
 	// bot init
 	float startPos[3] = {0};
@@ -66,6 +65,7 @@ int main() {
 	OLED_Write_Text(0, 0, "imu %d, mag %d", whoami[0], whoami[1]);
 	OLED_Update();
 	//Bot_UART_Write(bot, "Bot init...\r\n\n");
+	
 	
 	T1CONSET = _T1CON_ON_MASK;			// start bot
 	LATASET = _LATA_LATA1_MASK;
@@ -92,13 +92,12 @@ void __ISR(_TIMER_1_VECTOR, IPL3SOFT) TMR1_IntHandler() {
 	bot->count++;
 	
 	Bot_Pos_Update(bot);		// imu pos update @ 40 Hz
-	
-	/*if (bot->count % 2 == 0)*/ Bot_Pos_Control(bot);	 // controller update @ 20 Hz
+	Bot_Pos_Control(bot);	 // controller update @ 20 Hz
 	
 	if (bot->count % 4 == 0) {
 		//Bot_Display_Status(bot);
 		// Bot_UART_Status(bot);
-		if (Bot_Detect_Collision(bot)) Bot_Quick_Reverse(bot);
+		Bot_Detect_Collision(bot);
 		// end reverse
 		if (bot->reverseCount) {
 			bot->reverseCount--;
@@ -107,12 +106,14 @@ void __ISR(_TIMER_1_VECTOR, IPL3SOFT) TMR1_IntHandler() {
 	}
 	
 	if (bot->count % 10 == 0) {
-		//if ((bot->state & STATE_MASK) != INIT) 
 		if (bot->state == FINISH) LATAINV = _LATA_LATA1_MASK;
 		Bot_Display_Map(bot);
+		Bot_Vacuum(bot->state == VACUUM);
+	}
+	
+	if (bot->count % 7 == 0) {
 		bot->usState = 0;
-		Ultrasonic_Trigger();	// distance reading @ 2 Hz
-		Bot_Vacuum(bot, (bot->state == NAVIGATE || bot->state == REVERSE));
+		Ultrasonic_Trigger();	// distance reading @ 3 Hz
 	}
 
 	if (bot-> count % FREQ == 0) {
@@ -121,15 +122,26 @@ void __ISR(_TIMER_1_VECTOR, IPL3SOFT) TMR1_IntHandler() {
 		bot->dblClickCount = 0;
 		
 		AD1CON1SET = _AD1CON1_SAMP_MASK;
-		if (bot->time == 15) {
-			for (uint8_t i = 0; i < 3; i++) bot->bias[i] /= bot->numBias;
-			bot->bias[2] *= M_PI / 180.0;
-			bot->state = NAVIGATE;
-			//Bot_UART_Write(bot, "Bot state: %d\r\n", bot->state);
-		}
-		if (bot->time == 65) {
-			bot->state = FINISH;
-			Bot_UART_Map(bot);
+		switch (bot->time) {
+			case INIT_T: {
+				for (uint8_t i = 0; i < 3; i++) bot->bias[i] /= bot->numBias;
+				bot->bias[2] *= M_PI / 180.0;
+				bot->state = VACUUM;
+				Bot_UART_Write(bot, "Bot state: %d\r\n", bot->state);
+				break;
+			}
+			case VAC_T: {
+				bot->state = NAVIGATE;
+				break;
+			}
+			case EXEC_T: {
+				if (bot->state != FINISH) {
+					bot->state = FINISH;
+					Bot_Motor_Control(bot);
+					Bot_UART_Map(bot);
+				}
+				break;
+			}
 		}
 	}
 }
@@ -138,7 +150,6 @@ void __ISR(_TIMER_1_VECTOR, IPL3SOFT) TMR1_IntHandler() {
 void __ISR(_TIMER_5_VECTOR, IPL3SOFT) TMR5_IntHandler() {
 	IFS0CLR = _IFS0_T5IF_MASK;
 	bot->dist[bot->usState++] = TMR5 * SOUND_SPEED;
-	bot->usCount++;
 	TMR5 = 0;
 
 	// check if all readings taken, update map 

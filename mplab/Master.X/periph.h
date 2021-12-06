@@ -10,7 +10,7 @@
 #define I2C_W 0x0
 #define I2C_R 0x1
 #define TMR1_PR 25000
-#define WHEEL_R 0.032
+#define WHEEL_R 0.036
 #define WHEEL_HOLES 20.0
 
 /* peripheral defintions */
